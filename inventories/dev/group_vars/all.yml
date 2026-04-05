@@ -1,0 +1,60 @@
+# =============================================================
+# 개발(dev) 환경 공통 변수
+# terraform-ec2의 envs/dev/variables.tf + terraform.tfvars 역할
+# =============================================================
+
+# ----------------------------
+# 프로젝트 공통 태그 (Terraform locals.tags 와 동일한 개념)
+# ----------------------------
+project: "ansible-practice"
+environment: "dev"
+owner: "sunny"
+managed_by: "ansible"
+
+# ----------------------------
+# AWS 리전
+# ----------------------------
+aws_region: "ap-northeast-2"
+
+# ----------------------------
+# 네트워크 설정 (terraform-vpc 참고)
+# ----------------------------
+vpc_cidr: "10.20.0.0/16"
+
+# ----------------------------
+# NTP 서버 설정
+# ----------------------------
+ntp_servers:
+  - "169.254.169.123"   # AWS Time Sync Service
+  - "time.google.com"
+
+# ----------------------------
+# 타임존 설정
+# ----------------------------
+timezone: "Asia/Seoul"
+
+# ----------------------------
+# 공통 패키지 목록
+# ----------------------------
+common_packages:
+  - vim
+  - curl
+  - wget
+  - unzip
+  - git
+  - htop
+  - net-tools
+  - telnet
+
+# ----------------------------
+# 보안 설정
+# ----------------------------
+ssh_port: 22
+ssh_allow_users: "ec2-user"
+ssh_password_authentication: "no"
+ssh_permit_root_login: "no"
+
+# ----------------------------
+# 로그 보관 기간 (일)
+# ----------------------------
+log_retention_days: 30

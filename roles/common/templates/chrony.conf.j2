@@ -1,0 +1,21 @@
+# =============================================================
+# chrony NTP 설정 템플릿
+# Ansible 템플릿 - Jinja2 형식
+# =============================================================
+
+# NTP 서버 목록 (group_vars에서 주입)
+{% for server in ntp_servers %}
+server {{ server }} iburst
+{% endfor %}
+
+# 드리프트 파일
+driftfile /var/lib/chrony/drift
+
+# 시스템 시계가 크게 틀어진 경우 빠른 동기화 허용
+makestep 1.0 3
+
+# 하드웨어 타임스탬프 활성화
+rtcsync
+
+# 로그 디렉토리
+logdir /var/log/chrony

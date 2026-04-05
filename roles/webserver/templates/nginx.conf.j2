@@ -1,0 +1,54 @@
+# =============================================================
+# Nginx 메인 설정 템플릿
+# =============================================================
+
+user {{ nginx_user }};
+worker_processes {{ nginx_worker_processes }};
+error_log /var/log/nginx/error.log warn;
+pid /var/run/nginx.pid;
+
+events {
+    worker_connections {{ nginx_worker_connections }};
+    multi_accept on;
+    use epoll;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # 로그 포맷
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+
+    # 성능 설정
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout {{ nginx_keepalive_timeout }};
+    send_timeout {{ nginx_send_timeout }};
+    client_max_body_size {{ nginx_client_max_body_size }};
+
+    # 보안 헤더
+    server_tokens off;
+    add_header X-Frame-Options "SAMEORIGIN";
+    add_header X-Content-Type-Options "nosniff";
+    add_header X-XSS-Protection "1; mode=block";
+
+{% if nginx_gzip_enabled %}
+    # Gzip 압축
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/xml application/json
+               application/javascript application/rss+xml
+               application/atom+xml image/svg+xml;
+{% endif %}
+
+    # 가상 호스트 설정 포함
+    include /etc/nginx/sites-enabled/*.conf;
+}

@@ -1,0 +1,14 @@
+# =============================================================
+# security 롤 핸들러
+# =============================================================
+
+---
+- name: sshd 재시작
+  ansible.builtin.service:
+    name: sshd
+    state: restarted
+
+- name: auditd 재시작
+  ansible.builtin.service:
+    name: auditd
+    state: restarted

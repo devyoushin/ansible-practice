@@ -1,0 +1,119 @@
+# =============================================================
+# webserver 롤 - Nginx 웹서버 설정
+# terraform-ec2의 EC2 인스턴스 + 보안 그룹(80/443 허용) 역할
+# =============================================================
+
+---
+# ----------------------------
+# 1. Nginx 설치
+# ----------------------------
+- name: Nginx 저장소 추가 (Amazon Linux)
+  ansible.builtin.command: amazon-linux-extras enable nginx1
+  when:
+    - ansible_distribution == "Amazon"
+    - ansible_distribution_major_version == "2"
+  changed_when: false
+
+- name: Nginx 패키지 설치
+  ansible.builtin.package:
+    name: nginx
+    state: present
+
+# ----------------------------
+# 2. Nginx 설정 배포
+# ----------------------------
+- name: Nginx 메인 설정 파일 배포
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: /etc/nginx/nginx.conf
+    owner: root
+    group: root
+    mode: '0644'
+    validate: /usr/sbin/nginx -t -c %s
+  notify: nginx 재시작
+
+- name: 가상 호스트 설정 디렉토리 생성
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /etc/nginx/sites-available
+    - /etc/nginx/sites-enabled
+
+- name: 기본 가상 호스트 설정 배포
+  ansible.builtin.template:
+    src: default.conf.j2
+    dest: /etc/nginx/sites-available/default.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: nginx 재시작
+
+- name: 기본 가상 호스트 활성화 (심볼릭 링크)
+  ansible.builtin.file:
+    src: /etc/nginx/sites-available/default.conf
+    dest: /etc/nginx/sites-enabled/default.conf
+    state: link
+  notify: nginx 재시작
+
+# ----------------------------
+# 3. 웹 루트 디렉토리 설정
+# ----------------------------
+- name: 웹 루트 디렉토리 생성
+  ansible.builtin.file:
+    path: "{{ nginx_root }}"
+    state: directory
+    owner: "{{ nginx_user }}"
+    group: "{{ nginx_group }}"
+    mode: '0755'
+
+- name: 기본 index.html 배포
+  ansible.builtin.template:
+    src: index.html.j2
+    dest: "{{ nginx_root }}/index.html"
+    owner: "{{ nginx_user }}"
+    group: "{{ nginx_group }}"
+    mode: '0644'
+
+# ----------------------------
+# 4. 로그 설정
+# ----------------------------
+- name: Nginx 로그 디렉토리 확인
+  ansible.builtin.file:
+    path: /var/log/nginx
+    state: directory
+    owner: root
+    group: adm
+    mode: '0755'
+
+- name: logrotate 설정 배포
+  ansible.builtin.template:
+    src: nginx-logrotate.j2
+    dest: /etc/logrotate.d/nginx
+    owner: root
+    group: root
+    mode: '0644'
+
+# ----------------------------
+# 5. 서비스 시작 및 활성화
+# ----------------------------
+- name: Nginx 서비스 시작 및 활성화
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: yes
+
+# ----------------------------
+# 6. 헬스체크 확인
+# ----------------------------
+- name: Nginx 헬스체크
+  ansible.builtin.uri:
+    url: "http://localhost:{{ nginx_port }}"
+    status_code: 200
+  register: health_check
+  retries: 3
+  delay: 5
+  until: health_check.status == 200

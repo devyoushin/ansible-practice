@@ -1,0 +1,106 @@
+# =============================================================
+# security 롤 - 서버 보안 강화
+# terraform-ec2의 Security Group 설정과 유사한 역할
+# SSH 하드닝, 방화벽, 감사 로그 등 설정
+# =============================================================
+
+---
+# ----------------------------
+# 1. SSH 설정 강화
+# ----------------------------
+- name: SSH 설정 파일 배포
+  ansible.builtin.template:
+    src: sshd_config.j2
+    dest: /etc/ssh/sshd_config
+    owner: root
+    group: root
+    mode: '0600'
+    validate: /usr/sbin/sshd -t -f %s
+  notify: sshd 재시작
+
+# ----------------------------
+# 2. 방화벽 설정 (firewalld)
+# ----------------------------
+- name: firewalld 패키지 설치
+  ansible.builtin.package:
+    name: firewalld
+    state: present
+
+- name: firewalld 서비스 시작 및 활성화
+  ansible.builtin.service:
+    name: firewalld
+    state: started
+    enabled: yes
+
+- name: SSH 포트 허용
+  ansible.posix.firewalld:
+    port: "{{ ssh_port }}/tcp"
+    permanent: yes
+    state: enabled
+    immediate: yes
+
+- name: 허용 포트 추가
+  ansible.posix.firewalld:
+    port: "{{ item.port }}/{{ item.proto }}"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  loop: "{{ allowed_ports }}"
+  when: allowed_ports is defined
+
+# ----------------------------
+# 3. 감사 로그 설정 (auditd)
+# ----------------------------
+- name: auditd 패키지 설치
+  ansible.builtin.package:
+    name: audit
+    state: present
+
+- name: auditd 감사 규칙 배포
+  ansible.builtin.template:
+    src: audit.rules.j2
+    dest: /etc/audit/rules.d/ansible.rules
+    owner: root
+    group: root
+    mode: '0640'
+  notify: auditd 재시작
+
+- name: auditd 서비스 활성화
+  ansible.builtin.service:
+    name: auditd
+    state: started
+    enabled: yes
+
+# ----------------------------
+# 4. 불필요한 서비스 비활성화
+# ----------------------------
+- name: 불필요한 서비스 비활성화
+  ansible.builtin.service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: no
+  loop: "{{ disabled_services }}"
+  ignore_errors: yes
+
+# ----------------------------
+# 5. 시스템 배너 설정 (MOTD)
+# ----------------------------
+- name: /etc/motd 배너 설정
+  ansible.builtin.template:
+    src: motd.j2
+    dest: /etc/motd
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: /etc/issue.net 배너 설정
+  ansible.builtin.copy:
+    content: |
+      ############################################################
+      #  이 시스템은 인가된 사용자만 접근 가능합니다.             #
+      #  Unauthorized access is prohibited and monitored.        #
+      ############################################################
+    dest: /etc/issue.net
+    owner: root
+    group: root
+    mode: '0644'

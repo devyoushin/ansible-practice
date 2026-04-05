@@ -1,0 +1,39 @@
+# =============================================================
+# SSH 데몬 설정 템플릿
+# terraform-ec2 Security Group의 인바운드 규칙과 동일한 역할
+# =============================================================
+
+# 기본 설정
+Port {{ ssh_port }}
+Protocol 2
+AddressFamily inet
+
+# 인증 설정
+PermitRootLogin {{ ssh_permit_root_login }}
+PasswordAuthentication {{ ssh_password_authentication }}
+PubkeyAuthentication yes
+AuthorizedKeysFile .ssh/authorized_keys
+
+# 허용 사용자 제한
+AllowUsers {{ ssh_allow_users }}
+
+# 세션 타임아웃
+ClientAliveInterval {{ ssh_client_alive_interval }}
+ClientAliveCountMax {{ ssh_client_alive_count_max }}
+LoginGraceTime 60
+
+# 보안 강화
+MaxAuthTries {{ ssh_max_auth_tries }}
+MaxSessions 10
+PermitEmptyPasswords no
+X11Forwarding no
+UseDNS no
+
+# 배너
+Banner /etc/issue.net
+
+# 로그 레벨
+LogLevel VERBOSE
+
+# SFTP 서브시스템
+Subsystem sftp /usr/lib/openssh/sftp-server

@@ -1,0 +1,34 @@
+# =============================================================
+# 스테이징(staging) 환경 공통 변수
+# =============================================================
+
+project: "ansible-practice"
+environment: "staging"
+owner: "sunny"
+managed_by: "ansible"
+
+aws_region: "ap-northeast-2"
+vpc_cidr: "10.30.0.0/16"
+
+ntp_servers:
+  - "169.254.169.123"
+  - "time.google.com"
+
+timezone: "Asia/Seoul"
+
+common_packages:
+  - vim
+  - curl
+  - wget
+  - unzip
+  - git
+  - htop
+  - net-tools
+  - telnet
+
+ssh_port: 22
+ssh_allow_users: "ec2-user"
+ssh_password_authentication: "no"
+ssh_permit_root_login: "no"
+
+log_retention_days: 60

@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ project }} - {{ environment }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; background: #f5f5f5; }
+        .box { background: white; padding: 30px; border-radius: 8px; display: inline-block; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        .env { color: white; padding: 5px 15px; border-radius: 4px; font-size: 14px;
+               background: {% if environment == 'prod' %}#e74c3c{% elif environment == 'staging' %}#f39c12{% else %}#2ecc71{% endif %}; }
+    </style>
+</head>
+<body>
+    <div class="box">
+        <h1>{{ project }}</h1>
+        <p><span class="env">{{ environment | upper }}</span></p>
+        <p>호스트: <strong>{{ inventory_hostname }}</strong></p>
+        <p>관리자: {{ owner }} | 관리 도구: {{ managed_by }}</p>
+    </div>
+</body>
+</html>

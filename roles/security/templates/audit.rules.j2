@@ -1,0 +1,25 @@
+# =============================================================
+# auditd 감사 규칙 템플릿
+# =============================================================
+
+# 버퍼 크기 설정
+-b 8192
+
+# 실패한 로그인 감사
+-w /var/log/faillog -p wa -k logins
+-w /var/log/lastlog -p wa -k logins
+
+# sudo 사용 감사
+-w /etc/sudoers -p wa -k scope
+-w /etc/sudoers.d/ -p wa -k scope
+
+# SSH 설정 변경 감사
+-w /etc/ssh/sshd_config -p wa -k sshd
+
+# 사용자/그룹 변경 감사
+-w /etc/passwd -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/shadow -p wa -k identity
+
+# 환경 변수(env) 를 이용한 프로그램 실행 감사
+-a always,exit -F arch=b64 -S execve -k exec

@@ -1,0 +1,105 @@
+# =============================================================
+# common 롤 - 공통 서버 초기 설정
+# terraform-ec2의 modules/ec2/main.tf 역할과 유사
+# 모든 서버에 적용되는 기본 구성 관리
+# =============================================================
+
+---
+# ----------------------------
+# 1. 패키지 업데이트 및 공통 패키지 설치
+# ----------------------------
+- name: 패키지 캐시 업데이트 (yum)
+  ansible.builtin.yum:
+    update_cache: yes
+  when: ansible_os_family == "RedHat"
+
+- name: 패키지 캐시 업데이트 (apt)
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+  when: ansible_os_family == "Debian"
+
+- name: 공통 패키지 설치
+  ansible.builtin.package:
+    name: "{{ common_packages }}"
+    state: present
+
+# ----------------------------
+# 2. 타임존 설정
+# ----------------------------
+- name: 타임존 설정 ({{ timezone }})
+  community.general.timezone:
+    name: "{{ timezone }}"
+  notify: timedatectl 상태 확인
+
+# ----------------------------
+# 3. NTP 설정 (chrony)
+# ----------------------------
+- name: chrony 패키지 설치
+  ansible.builtin.package:
+    name: chrony
+    state: present
+
+- name: chrony 설정 파일 배포
+  ansible.builtin.template:
+    src: chrony.conf.j2
+    dest: /etc/chrony.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: chrony 재시작
+
+- name: chrony 서비스 활성화 및 시작
+  ansible.builtin.service:
+    name: chronyd
+    state: started
+    enabled: yes
+
+# ----------------------------
+# 4. 호스트명 설정
+# ----------------------------
+- name: 호스트명 설정
+  ansible.builtin.hostname:
+    name: "{{ inventory_hostname }}"
+
+- name: /etc/hosts에 호스트명 등록
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    regexp: '^127\.0\.0\.1'
+    line: "127.0.0.1 localhost {{ inventory_hostname }}"
+    owner: root
+    group: root
+    mode: '0644'
+
+# ----------------------------
+# 5. 공통 디렉토리 생성
+# ----------------------------
+- name: 로그 디렉토리 생성
+  ansible.builtin.file:
+    path: /var/log/app
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+# ----------------------------
+# 6. 시스템 limits 설정 (ulimit)
+# ----------------------------
+- name: 파일 디스크립터 limits 설정
+  ansible.builtin.template:
+    src: limits.conf.j2
+    dest: /etc/security/limits.d/90-ansible.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+# ----------------------------
+# 7. sysctl 커널 파라미터 설정
+# ----------------------------
+- name: sysctl 파라미터 설정
+  ansible.posix.sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    state: present
+    reload: yes
+  loop: "{{ sysctl_settings }}"

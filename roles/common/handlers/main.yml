@@ -1,0 +1,14 @@
+# =============================================================
+# common 롤 핸들러 정의
+# =============================================================
+
+---
+- name: chrony 재시작
+  ansible.builtin.service:
+    name: chronyd
+    state: restarted
+
+- name: timedatectl 상태 확인
+  ansible.builtin.command: timedatectl status
+  register: timedatectl_output
+  changed_when: false

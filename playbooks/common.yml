@@ -1,0 +1,13 @@
+# =============================================================
+# 공통 설정 플레이북 (단독 실행용)
+# 실행: ansible-playbook -i inventories/dev/hosts.ini playbooks/common.yml
+# =============================================================
+
+---
+- name: 공통 서버 초기화 및 보안 설정
+  hosts: all
+  become: yes
+  gather_facts: yes
+  roles:
+    - common
+    - security

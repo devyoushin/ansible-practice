@@ -1,0 +1,38 @@
+# =============================================================
+# 메인 플레이북 - site.yml
+# terraform-ec2의 envs/prod/main.tf 역할 (전체 오케스트레이션)
+# 실행 예시:
+#   ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml
+#   ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml
+# =============================================================
+
+---
+# ----------------------------
+# 1. 전체 서버 공통 설정
+# ----------------------------
+- name: 공통 서버 초기화
+  hosts: all
+  become: yes
+  gather_facts: yes
+  roles:
+    - common
+    - security
+  tags:
+    - common
+    - security
+
+# ----------------------------
+# 2. 웹서버 설정
+# ----------------------------
+- name: 웹서버 구성
+  hosts: webservers
+  become: yes
+  gather_facts: yes
+  roles:
+    - webserver
+  vars:
+    allowed_ports:
+      - { port: "80", proto: "tcp" }
+      - { port: "443", proto: "tcp" }
+  tags:
+    - webserver

@@ -1,0 +1,17 @@
+# =============================================================
+# 웹서버 플레이북 (단독 실행용)
+# 실행: ansible-playbook -i inventories/dev/hosts.ini playbooks/webserver.yml
+# 특정 태그만: ansible-playbook ... --tags "install"
+# =============================================================
+
+---
+- name: Nginx 웹서버 구성
+  hosts: webservers
+  become: yes
+  gather_facts: yes
+  vars:
+    allowed_ports:
+      - { port: "80", proto: "tcp" }
+      - { port: "443", proto: "tcp" }
+  roles:
+    - webserver

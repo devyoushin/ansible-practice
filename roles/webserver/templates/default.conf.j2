@@ -1,0 +1,43 @@
+# =============================================================
+# Nginx 기본 가상 호스트 설정 템플릿
+# =============================================================
+
+server {
+    listen {{ nginx_port }} default_server;
+    listen [::]:{{ nginx_port }} default_server;
+
+    server_name {{ nginx_server_name }};
+    root {{ nginx_root }};
+    index index.html index.htm;
+
+    # 액세스 로그
+    access_log /var/log/nginx/{{ inventory_hostname }}-access.log main;
+    error_log  /var/log/nginx/{{ inventory_hostname }}-error.log warn;
+
+    # 기본 location
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # 헬스체크 엔드포인트
+    location /health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+
+    # 상태 페이지 (로컬만 허용)
+    location /nginx_status {
+        stub_status on;
+        access_log off;
+        allow 127.0.0.1;
+        deny all;
+    }
+
+    # 숨김 파일 접근 차단
+    location ~ /\. {
+        deny all;
+        access_log off;
+        log_not_found off;
+    }
+}

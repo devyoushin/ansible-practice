@@ -1,0 +1,13 @@
+# Nginx 로그 로테이션 설정
+/var/log/nginx/*.log {
+    daily
+    rotate {{ nginx_log_rotate_days }}
+    missingok
+    notifempty
+    compress
+    delaycompress
+    sharedscripts
+    postrotate
+        /bin/kill -USR1 $(cat /var/run/nginx.pid 2>/dev/null) 2>/dev/null || true
+    endscript
+}

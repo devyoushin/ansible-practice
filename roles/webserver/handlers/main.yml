@@ -1,0 +1,14 @@
+# =============================================================
+# webserver 롤 핸들러
+# =============================================================
+
+---
+- name: nginx 재시작
+  ansible.builtin.service:
+    name: nginx
+    state: restarted
+
+- name: nginx 리로드
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded

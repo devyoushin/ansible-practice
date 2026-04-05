@@ -1,0 +1,36 @@
+# =============================================================
+# webserver 롤 기본 변수
+# terraform-ec2 modules/ec2/variables.tf 와 동일한 역할
+# =============================================================
+
+---
+# Nginx 사용자/그룹
+nginx_user: nginx
+nginx_group: nginx
+
+# 포트 설정 (terraform의 ingress_rules port 와 동일한 개념)
+nginx_port: 80
+nginx_ssl_port: 443
+
+# 웹 루트 경로
+nginx_root: /var/www/html
+
+# 워커 설정
+nginx_worker_processes: auto
+nginx_worker_connections: 1024
+
+# 업로드 파일 크기 제한
+nginx_client_max_body_size: "10m"
+
+# 타임아웃 설정
+nginx_keepalive_timeout: 65
+nginx_send_timeout: 60
+
+# 로그 보관 기간
+nginx_log_rotate_days: "{{ log_retention_days | default(30) }}"
+
+# 서버 이름 (가상 호스트)
+nginx_server_name: "_"
+
+# Gzip 압축
+nginx_gzip_enabled: true

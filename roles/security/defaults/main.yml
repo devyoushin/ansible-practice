@@ -1,0 +1,26 @@
+# =============================================================
+# security 롤 기본 변수
+# terraform-ec2 modules/ec2/variables.tf 의 ingress_rules와 유사
+# =============================================================
+
+---
+# SSH 설정
+ssh_port: 22
+ssh_allow_users: "ec2-user"
+ssh_password_authentication: "no"
+ssh_permit_root_login: "no"
+ssh_max_auth_tries: 3
+ssh_client_alive_interval: 300
+ssh_client_alive_count_max: 2
+
+# 허용 포트 목록 (terraform의 ingress_rules 와 동일한 개념)
+# 예: allowed_ports는 group_vars나 playbook에서 정의
+# allowed_ports:
+#   - { port: "80", proto: "tcp" }
+#   - { port: "443", proto: "tcp" }
+
+# 비활성화할 서비스 목록
+disabled_services:
+  - postfix
+  - avahi-daemon
+  - cups
