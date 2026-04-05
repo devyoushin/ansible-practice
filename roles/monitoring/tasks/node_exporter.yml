@@ -1,0 +1,65 @@
+# =============================================================
+# Node Exporter 설치 (모든 서버에 적용)
+# 바이너리 직접 다운로드 방식 (패키지 저장소 불필요)
+# =============================================================
+---
+- name: node_exporter 전용 사용자 생성
+  user:
+    name: "{{ node_exporter_user }}"
+    system: yes
+    shell: /sbin/nologin
+    create_home: no
+
+- name: 설치 디렉토리 생성
+  file:
+    path: "{{ node_exporter_install_dir }}"
+    state: directory
+    owner: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_user }}"
+    mode: "0755"
+
+# ----------------------------
+# get_url: 파일 다운로드 (checksum 검증 포함)
+# 이미 다운로드된 경우 idempotent하게 skip
+# ----------------------------
+- name: Node Exporter 다운로드
+  get_url:
+    url: "https://github.com/prometheus/node_exporter/releases/download/v{{ node_exporter_version }}/node_exporter-{{ node_exporter_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+    mode: "0644"
+
+- name: 압축 해제
+  unarchive:
+    src: "/tmp/node_exporter-{{ node_exporter_version }}.tar.gz"
+    dest: "{{ node_exporter_install_dir }}"
+    remote_src: yes
+    extra_opts: ["--strip-components=1"]
+    owner: "{{ node_exporter_user }}"
+    group: "{{ node_exporter_user }}"
+  notify: restart node_exporter
+
+- name: systemd 서비스 유닛 배포
+  template:
+    src: node_exporter.service.j2
+    dest: /etc/systemd/system/node_exporter.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd daemon
+    - restart node_exporter
+
+- name: Node Exporter 서비스 시작
+  service:
+    name: node_exporter
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+- name: Node Exporter 포트 firewalld 허용 (prometheus 서버에서만 접근)
+  firewalld:
+    rich_rule: "rule family=ipv4 source address={{ hostvars[groups['monitoring'][0]]['ansible_host'] }}/32 port port={{ node_exporter_port }} protocol=tcp accept"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  when: groups['monitoring'] is defined and groups['monitoring'] | length > 0

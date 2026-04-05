@@ -1,0 +1,75 @@
+# =============================================================
+# AWS 동적 인벤토리 (aws_ec2 플러그인)
+#
+# 사전 요구사항:
+#   pip install boto3 botocore
+#   aws configure  또는 IAM 역할
+#
+# 사용법:
+#   ansible-inventory -i inventories/aws/ec2.yml --list
+#   ansible-inventory -i inventories/aws/ec2.yml --graph
+#   ansible-playbook -i inventories/aws/ec2.yml playbooks/site.yml
+#
+# EC2 태그 기반 그룹 자동 생성:
+#   tag_Role_webserver  → webservers 그룹
+#   tag_Env_prod        → prod 그룹
+# =============================================================
+
+plugin: aws_ec2
+regions:
+  - ap-northeast-2   # 서울 리전
+
+# 필터: running 상태 인스턴스만
+filters:
+  instance-state-name: running
+  "tag:Project": ansible-practice   # 우리 프로젝트 태그만
+
+# ----------------------------
+# 그룹 자동 생성 규칙
+# EC2 태그 → Ansible 그룹으로 변환
+# ----------------------------
+keyed_groups:
+  # tag:Role=webserver → 그룹명: role_webserver
+  - key: tags.Role
+    prefix: role
+    separator: "_"
+
+  # tag:Environment=prod → 그룹명: env_prod
+  - key: tags.Environment
+    prefix: env
+    separator: "_"
+
+  # 인스턴스 타입별 그룹 (t3.micro, m5.large 등)
+  - key: instance_type
+    prefix: type
+
+  # AZ별 그룹 (ap-northeast-2a, ap-northeast-2c)
+  - key: placement.availability_zone
+    prefix: az
+
+# ----------------------------
+# compose: 변수 값을 동적으로 생성
+# ----------------------------
+compose:
+  # Private IP를 ansible_host로 사용 (VPC 내부 통신)
+  ansible_host: private_ip_address
+
+  # EC2 태그에서 환경 변수 가져오기
+  environment: tags.Environment
+  app_version: tags.AppVersion | default('latest')
+
+# ----------------------------
+# 그룹 구조 정리 (keyed_groups 결과를 재매핑)
+# ----------------------------
+groups:
+  webservers: "'webserver' in tags.get('Role', '')"
+  appservers: "'appserver' in tags.get('Role', '')"
+  dbservers:  "'dbserver'  in tags.get('Role', '')"
+  loadbalancers: "'haproxy' in tags.get('Role', '')"
+  monitoring: "'monitoring' in tags.get('Role', '')"
+
+# 캐시 설정 (AWS API 호출 최소화)
+cache: yes
+cache_plugin: jsonfile
+cache_timeout: 300   # 5분
+cache_connection: /tmp/aws_ec2_cache

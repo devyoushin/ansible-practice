@@ -1,0 +1,43 @@
+# =============================================================
+# Ansible Vault - 암호화 대상 시크릿 (dev 환경)
+#
+# 실제 운영에서는 이 파일을 ansible-vault로 암호화해야 함:
+#   ansible-vault encrypt inventories/dev/group_vars/vault.yml
+#
+# 암호화 후 내용:
+#   $ANSIBLE_VAULT;1.1;AES256
+#   3861306...
+#
+# 복호화 방법:
+#   ansible-vault decrypt inventories/dev/group_vars/vault.yml
+#   ansible-vault view inventories/dev/group_vars/vault.yml
+#   ansible-vault edit inventories/dev/group_vars/vault.yml
+#
+# 플레이북 실행 시 비밀번호 입력:
+#   ansible-playbook site.yml --ask-vault-pass
+#   ansible-playbook site.yml --vault-password-file ~/.vault_pass
+# =============================================================
+
+# ----------------------------
+# DB 시크릿
+# ----------------------------
+vault_db_root_password: "dev-root-P@ssw0rd-changeme"
+vault_db_app_password: "dev-app-P@ssw0rd-changeme"
+vault_db_replication_password: "dev-repl-P@ssw0rd-changeme"
+
+# ----------------------------
+# 앱 시크릿
+# ----------------------------
+vault_app_secret_key: "dev-jwt-secret-key-changeme-32chars"
+
+# ----------------------------
+# HAProxy 통계 UI 비밀번호
+# ----------------------------
+vault_haproxy_stats_password: "dev-stats-changeme"
+
+# ----------------------------
+# 외부 서비스 API 키 (예시)
+# ----------------------------
+vault_slack_webhook_url: "https://hooks.slack.com/services/XXX/YYY/ZZZ"
+vault_aws_access_key: "AKIAIOSFODNN7EXAMPLE"
+vault_aws_secret_key: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"

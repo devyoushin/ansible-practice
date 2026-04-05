@@ -1,0 +1,14 @@
+# =============================================================
+# database role 핸들러
+# notify로 호출되며, 플레이 마지막에 한 번만 실행
+# =============================================================
+---
+- name: restart mariadb
+  service:
+    name: mariadb
+    state: restarted
+
+- name: reload mariadb
+  service:
+    name: mariadb
+    state: reloaded

@@ -1,0 +1,64 @@
+# =============================================================
+# MariaDB 설정 (Ansible 관리 - 직접 수정 금지)
+# 호스트: {{ inventory_hostname }} | 환경: {{ environment }}
+# =============================================================
+
+[mysqld]
+# 기본
+port            = {{ mariadb_port }}
+bind-address    = {{ mariadb_bind_address }}
+datadir         = {{ mariadb_datadir }}
+pid-file        = {{ mariadb_pid_file }}
+socket          = /var/lib/mysql/mysql.sock
+
+# 문자셋
+character-set-server  = {{ mariadb_character_set }}
+collation-server      = {{ mariadb_collation }}
+
+# 연결
+max_connections       = {{ mariadb_max_connections }}
+max_allowed_packet    = {{ mariadb_max_allowed_packet }}
+
+# InnoDB 성능 튜닝
+innodb_buffer_pool_size   = {{ mariadb_innodb_buffer_pool_size }}
+innodb_log_file_size      = {{ mariadb_innodb_log_file_size }}
+innodb_flush_log_at_trx_commit = 1   # 1=안전(기본), 2=성능우선
+innodb_file_per_table     = ON
+
+# 쿼리 캐시
+query_cache_size   = {{ mariadb_query_cache_size }}
+query_cache_type   = 1
+
+# Slow Query 로그
+slow_query_log          = {{ '1' if mariadb_slow_query_log else '0' }}
+slow_query_log_file     = {{ mariadb_log_dir }}/slow.log
+long_query_time         = {{ mariadb_slow_query_log_time }}
+log_queries_not_using_indexes = ON
+
+# 에러 로그
+log_error = {{ mariadb_log_dir }}/error.log
+
+{% if mariadb_replication_enabled %}
+# ----------------------------
+# 복제(Replication) 설정
+# ----------------------------
+server-id         = {{ mariadb_server_id }}
+{% if mariadb_replication_role == 'master' %}
+log_bin           = {{ mariadb_datadir }}/mysql-bin
+binlog_format     = ROW
+expire_logs_days  = 7
+max_binlog_size   = 100M
+{% elif mariadb_replication_role == 'slave' %}
+relay-log         = {{ mariadb_datadir }}/relay-bin
+read_only         = ON   # 슬레이브는 읽기 전용
+log_slave_updates = ON
+{% endif %}
+{% endif %}
+
+[mysql]
+default-character-set = {{ mariadb_character_set }}
+
+[client]
+port    = {{ mariadb_port }}
+socket  = /var/lib/mysql/mysql.sock
+default-character-set = {{ mariadb_character_set }}

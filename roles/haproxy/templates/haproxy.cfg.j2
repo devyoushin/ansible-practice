@@ -1,0 +1,92 @@
+# =============================================================
+# HAProxy 설정 (Ansible 관리 - 직접 수정 금지)
+# 환경: {{ environment }} | 호스트: {{ inventory_hostname }}
+# =============================================================
+
+global
+    log         /dev/log local0
+    log         /dev/log local1 notice
+    chroot      /var/lib/haproxy
+    pidfile     /var/run/haproxy.pid
+    maxconn     50000
+    user        haproxy
+    group       haproxy
+    daemon
+    stats socket /var/lib/haproxy/stats level admin
+
+defaults
+    mode                    http
+    log                     global
+    option                  httplog
+    option                  dontlognull
+    option                  http-server-close
+    option                  forwardfor      # X-Forwarded-For 헤더 추가
+    option                  redispatch      # 서버 다운 시 다른 서버로 재전송
+    retries                 3
+    timeout connect         {{ haproxy_connect_timeout }}
+    timeout client          {{ haproxy_client_timeout }}
+    timeout server          {{ haproxy_server_timeout }}
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 503 /etc/haproxy/errors/503.http
+
+# ----------------------------
+# 통계 UI (운영 모니터링용)
+# ----------------------------
+frontend stats
+    bind *:{{ haproxy_stats_port }}
+    stats enable
+    stats uri /haproxy-stats
+    stats realm "HAProxy Statistics"
+    stats auth {{ haproxy_stats_user }}:{{ haproxy_stats_password }}
+    stats refresh 10s
+    stats show-legends
+    stats show-node
+
+# ----------------------------
+# 웹서버 프론트엔드 (HTTP)
+# ----------------------------
+frontend web_frontend
+    bind *:{{ haproxy_frontend_port }}
+    default_backend web_backend
+
+    # 헬스체크 경로는 백엔드로 직접 라우팅 (로드밸런서 로그 오염 방지)
+    acl is_health_check path_beg /health
+    use_backend web_backend if is_health_check
+
+# ----------------------------
+# 앱서버 API 프론트엔드
+# ----------------------------
+frontend api_frontend
+    bind *:{{ haproxy_frontend_https_port }}
+    default_backend app_backend
+
+# ----------------------------
+# 웹서버 백엔드
+# Ansible inventory의 webservers 그룹에서 자동 생성
+# ----------------------------
+backend web_backend
+    balance {{ haproxy_backend_balance }}
+    option httpchk GET /health HTTP/1.1\r\nHost:\ localhost
+
+{% for host in groups['webservers'] %}
+    server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:80 \
+        check \
+        inter {{ haproxy_health_check_interval }} \
+        rise {{ haproxy_health_check_rise }} \
+        fall {{ haproxy_health_check_fall }}
+{% endfor %}
+
+# ----------------------------
+# 앱서버 백엔드
+# ----------------------------
+backend app_backend
+    balance {{ haproxy_backend_balance }}
+    option httpchk GET /actuator/health HTTP/1.1\r\nHost:\ localhost
+
+{% for host in groups['appservers'] %}
+    server {{ hostvars[host]['inventory_hostname'] }} {{ hostvars[host]['ansible_host'] }}:8080 \
+        check \
+        inter {{ haproxy_health_check_interval }} \
+        rise {{ haproxy_health_check_rise }} \
+        fall {{ haproxy_health_check_fall }}
+{% endfor %}

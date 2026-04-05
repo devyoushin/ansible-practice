@@ -1,0 +1,147 @@
+# =============================================================
+# GitHub Actions CI 파이프라인
+# PR 생성/업데이트 시 자동 실행:
+#   1. YAML 문법 검사 (yamllint)
+#   2. Ansible 모범 사례 검사 (ansible-lint)
+#   3. 문법 체크 드라이런 (--syntax-check)
+#   4. Molecule 테스트 (Docker)
+# =============================================================
+
+name: Ansible CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  # ----------------------------
+  # 1. lint: 코드 품질 검사
+  # ----------------------------
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 의존성 설치
+        run: |
+          pip install ansible ansible-lint yamllint
+
+      - name: YAML 문법 검사
+        run: yamllint .
+
+      - name: Ansible Lint
+        run: ansible-lint playbooks/
+
+  # ----------------------------
+  # 2. syntax-check: 플레이북 문법 검사
+  # ----------------------------
+  syntax-check:
+    name: Syntax Check
+    runs-on: ubuntu-latest
+    needs: lint
+
+    strategy:
+      matrix:
+        playbook:
+          - playbooks/site.yml
+          - playbooks/database.yml
+          - playbooks/app.yml
+          - playbooks/rolling_update.yml
+          - playbooks/maintenance.yml
+          - playbooks/monitoring.yml
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python + Ansible 설치
+        run: pip install ansible
+
+      - name: 플레이북 문법 체크
+        run: |
+          ansible-playbook \
+            -i inventories/dev/hosts.ini \
+            ${{ matrix.playbook }} \
+            --syntax-check
+
+  # ----------------------------
+  # 3. molecule: 롤 단위 테스트
+  # ----------------------------
+  molecule:
+    name: Molecule Test
+    runs-on: ubuntu-latest
+    needs: syntax-check
+
+    strategy:
+      matrix:
+        role:
+          - common
+          - security
+          - webserver
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 설정
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Molecule 설치
+        run: pip install ansible molecule molecule-docker docker
+
+      - name: Molecule 테스트 실행
+        run: |
+          cd roles/${{ matrix.role }}
+          molecule test
+        env:
+          PY_COLORS: "1"
+          ANSIBLE_FORCE_COLOR: "1"
+
+  # ----------------------------
+  # 4. dry-run: dev 환경 드라이런 (체크 모드)
+  # ----------------------------
+  dry-run:
+    name: Dry Run (dev)
+    runs-on: ubuntu-latest
+    needs: molecule
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python + Ansible 설치
+        run: pip install ansible boto3
+
+      - name: AWS 자격증명 설정
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-northeast-2
+
+      - name: SSH 키 설정
+        run: |
+          echo "${{ secrets.DEV_SSH_PRIVATE_KEY }}" > ~/.ssh/dev-key.pem
+          chmod 600 ~/.ssh/dev-key.pem
+
+      - name: Vault 비밀번호 파일 설정
+        run: echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > ~/.vault_pass
+
+      - name: 드라이런 실행 (--check)
+        run: |
+          ansible-playbook \
+            -i inventories/dev/hosts.ini \
+            playbooks/site.yml \
+            --check \
+            --vault-password-file ~/.vault_pass \
+            --diff   # 변경사항 diff 출력

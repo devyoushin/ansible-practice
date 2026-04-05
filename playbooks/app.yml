@@ -1,0 +1,16 @@
+# =============================================================
+# 애플리케이션 배포 플레이북
+#
+# 실행:
+#   ansible-playbook -i inventories/dev playbooks/app.yml
+#   ansible-playbook -i inventories/prod playbooks/app.yml -e "app_version=2.1.0"
+# =============================================================
+---
+- name: Spring Boot 앱 배포
+  hosts: appservers
+  become: yes
+  vars_files:
+    - "{{ inventory_dir }}/group_vars/vault.yml"
+
+  roles:
+    - role: app

@@ -1,0 +1,25 @@
+# =============================================================
+# haproxy role 기본 변수
+# =============================================================
+
+haproxy_frontend_port: 80
+haproxy_frontend_https_port: 443
+haproxy_stats_port: 9000
+haproxy_stats_user: "admin"
+haproxy_stats_password: "{{ vault_haproxy_stats_password }}"
+
+# 백엔드 알고리즘: roundrobin | leastconn | source(IP 해싱)
+haproxy_backend_balance: "roundrobin"
+
+# 헬스체크
+haproxy_health_check_interval: "5s"
+haproxy_health_check_rise: 2      # 연속 2회 성공 시 UP
+haproxy_health_check_fall: 3      # 연속 3회 실패 시 DOWN
+
+# 타임아웃
+haproxy_connect_timeout: "5s"
+haproxy_client_timeout: "50s"
+haproxy_server_timeout: "50s"
+
+# 로그
+haproxy_log_dir: "/var/log/haproxy"

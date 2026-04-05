@@ -1,0 +1,132 @@
+# =============================================================
+# GitHub Actions 배포 파이프라인
+# main 브랜치 머지 시 dev 자동 배포
+# prod 배포는 수동 승인(environment protection) 필요
+# =============================================================
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "배포 환경"
+        required: true
+        type: choice
+        options: [dev, staging, prod]
+        default: dev
+      app_version:
+        description: "앱 버전 (ex: 1.2.3)"
+        required: false
+        default: "latest"
+
+jobs:
+  deploy-dev:
+    name: Deploy to Dev
+    runs-on: ubuntu-latest
+    # GitHub Environments로 환경별 시크릿 분리
+    environment: dev
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python + Ansible 설치
+        run: pip install ansible boto3
+
+      - name: SSH 키 설정
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEV_SSH_PRIVATE_KEY }}" > ~/.ssh/dev-key.pem
+          chmod 600 ~/.ssh/dev-key.pem
+
+      - name: Vault 비밀번호 설정
+        run: echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > ~/.vault_pass
+
+      - name: Dev 배포 실행
+        run: |
+          ansible-playbook \
+            -i inventories/dev/hosts.ini \
+            playbooks/site.yml \
+            --vault-password-file ~/.vault_pass \
+            -e "app_version=${{ github.event.inputs.app_version || 'latest' }}"
+
+      - name: 배포 결과 Slack 알림
+        if: always()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: "Dev 배포 ${{ job.status }}: ${{ github.sha }}"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  # ----------------------------
+  # Staging 배포 (수동 트리거 또는 dev 성공 후)
+  # ----------------------------
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    environment: staging   # staging environment protection 적용
+    needs: deploy-dev
+    if: github.event.inputs.environment == 'staging' || github.event.inputs.environment == 'prod'
+
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install ansible boto3
+
+      - name: SSH 키 설정
+        run: |
+          echo "${{ secrets.STAGING_SSH_PRIVATE_KEY }}" > ~/.ssh/staging-key.pem
+          chmod 600 ~/.ssh/staging-key.pem
+
+      - name: Vault 비밀번호 설정
+        run: echo "${{ secrets.ANSIBLE_VAULT_PASSWORD_STAGING }}" > ~/.vault_pass
+
+      - name: Staging 롤링 배포
+        run: |
+          ansible-playbook \
+            -i inventories/staging/hosts.ini \
+            playbooks/rolling_update.yml \
+            --vault-password-file ~/.vault_pass \
+            -e "app_version=${{ github.event.inputs.app_version }}"
+
+  # ----------------------------
+  # Prod 배포 (수동 승인 필수)
+  # GitHub Settings > Environments > prod > Required reviewers 설정
+  # ----------------------------
+  deploy-prod:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    environment: prod   # Required reviewers 설정으로 수동 승인 필수
+    needs: deploy-staging
+    if: github.event.inputs.environment == 'prod'
+
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install ansible boto3
+
+      - name: SSH 키 설정
+        run: |
+          echo "${{ secrets.PROD_SSH_PRIVATE_KEY }}" > ~/.ssh/prod-key.pem
+          chmod 600 ~/.ssh/prod-key.pem
+
+      - name: Vault 비밀번호 설정
+        run: echo "${{ secrets.ANSIBLE_VAULT_PASSWORD_PROD }}" > ~/.vault_pass
+
+      - name: Prod 롤링 배포 (25%씩 순차)
+        run: |
+          ansible-playbook \
+            -i inventories/prod/hosts.ini \
+            playbooks/rolling_update.yml \
+            --vault-password-file ~/.vault_pass \
+            -e "app_version=${{ github.event.inputs.app_version }}"
+
+      - name: Prod 배포 완료 알림
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: "PROD 배포 ${{ job.status }}: v${{ github.event.inputs.app_version }}"
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}

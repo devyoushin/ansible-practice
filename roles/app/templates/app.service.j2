@@ -1,0 +1,57 @@
+# =============================================================
+# systemd 서비스 유닛 (Ansible 관리 - 직접 수정 금지)
+# 앱: {{ app_name }} | 환경: {{ environment }}
+# =============================================================
+
+[Unit]
+Description={{ app_name }} Spring Boot Application
+After=network.target mariadb.service
+Wants=network.target
+
+[Service]
+Type=simple
+User={{ app_user }}
+Group={{ app_group }}
+WorkingDirectory={{ app_home }}
+
+# ----------------------------
+# 환경 변수 (민감 정보는 EnvironmentFile로 분리)
+# ----------------------------
+Environment="SPRING_PROFILES_ACTIVE={{ app_spring_profile }}"
+Environment="JAVA_OPTS={{ app_jvm_opts }}"
+Environment="APP_PORT={{ app_port }}"
+Environment="MANAGEMENT_PORT={{ app_management_port }}"
+
+# 실행 명령
+ExecStart=/usr/bin/java \
+  ${JAVA_OPTS} \
+  -jar {{ app_jar_path }} \
+  --spring.config.location={{ app_config_dir }}/application.yml \
+  --server.port=${APP_PORT} \
+  --management.server.port=${MANAGEMENT_PORT}
+
+# 재시작 정책
+Restart=on-failure
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=3
+
+# 종료 대기 시간 (graceful shutdown)
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+
+# ----------------------------
+# 보안 강화 옵션
+# ----------------------------
+NoNewPrivileges=yes
+ProtectSystem=full
+PrivateTmp=yes
+ProtectHome=yes
+
+# 로그 설정
+StandardOutput=append:{{ app_log_dir }}/app.log
+StandardError=append:{{ app_log_dir }}/app-error.log
+
+[Install]
+WantedBy=multi-user.target

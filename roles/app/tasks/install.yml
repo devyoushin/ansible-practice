@@ -1,0 +1,67 @@
+# =============================================================
+# Java 설치 및 앱 실행 환경 준비
+# =============================================================
+---
+- name: Amazon Corretto (JDK) 설치
+  yum:
+    name: "{{ java_package }}"
+    state: present
+
+- name: Java 버전 확인
+  command: java -version
+  register: java_version_output
+  changed_when: false
+
+- name: Java 버전 출력
+  debug:
+    msg: "{{ java_version_output.stderr }}"   # java -version 은 stderr로 출력됨
+
+# ----------------------------
+# 전용 OS 계정 생성 (보안 모범 사례)
+# 앱은 root로 절대 실행하지 않음
+# ----------------------------
+- name: 앱 전용 그룹 생성
+  group:
+    name: "{{ app_group }}"
+    system: yes
+    state: present
+
+- name: 앱 전용 사용자 생성
+  user:
+    name: "{{ app_user }}"
+    group: "{{ app_group }}"
+    system: yes
+    shell: /sbin/nologin     # 직접 로그인 불가 (보안)
+    home: "{{ app_home }}"
+    create_home: no
+    comment: "{{ app_name }} service account"
+    state: present
+
+# ----------------------------
+# 디렉토리 구조 생성
+# ----------------------------
+- name: 앱 디렉토리 생성
+  file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ app_user }}"
+    group: "{{ app_group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ app_home }}",       mode: "0755" }
+    - { path: "{{ app_log_dir }}",    mode: "0755" }
+    - { path: "{{ app_pid_dir }}",    mode: "0755" }
+    - { path: "{{ app_config_dir }}", mode: "0750" }
+
+# ----------------------------
+# firewalld 포트 허용
+# ----------------------------
+- name: 앱 포트 firewalld 허용
+  firewalld:
+    port: "{{ item }}/tcp"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  loop:
+    - "{{ app_port }}"
+    - "{{ app_management_port }}"

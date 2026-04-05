@@ -1,0 +1,122 @@
+# =============================================================
+# 무중단 롤링 업데이트 플레이북
+#
+# 핵심 개념:
+#   serial: 한 번에 배포할 서버 수 (25% = 4대 중 1대씩)
+#   max_fail_percentage: 이 비율 초과 실패 시 전체 중단
+#   pre_tasks: 배포 전 로드밸런서에서 서버 제거
+#   post_tasks: 배포 후 헬스체크 확인 후 복구
+#
+# 실행: ansible-playbook -i inventories/prod playbooks/rolling_update.yml -e "app_version=2.0.0"
+# =============================================================
+---
+- name: 롤링 업데이트 - 웹서버
+  hosts: webservers
+  serial: "25%"              # 25%씩 순차 배포 (4대면 1대씩)
+  max_fail_percentage: 0     # 1대라도 실패하면 전체 중단
+  order: sorted              # 알파벳 순서로 배포 (일관성)
+
+  pre_tasks:
+    - name: "[Pre] 배포 시작 알림"
+      debug:
+        msg: "{{ inventory_hostname }} 배포 시작 ({{ app_version | default('latest') }})"
+
+    # ----------------------------
+    # delegate_to: 다른 서버에서 태스크 실행
+    # 현재 서버(web-01)를 로드밸런서에서 제거하는 작업을
+    # 로드밸런서 서버에서 실행
+    # ----------------------------
+    - name: "[Pre] 로드밸런서에서 서버 제거"
+      haproxy:
+        state: disabled
+        host: "{{ inventory_hostname }}"
+        backend: web_backend
+        socket: /var/lib/haproxy/stats
+        wait: yes
+        wait_retries: 10
+      delegate_to: "{{ groups['loadbalancers'] | first }}"
+      when: groups['loadbalancers'] is defined
+
+    - name: "[Pre] 기존 연결 종료 대기 (drain)"
+      wait_for:
+        timeout: 15   # 15초 대기 (기존 요청 처리 완료)
+
+  roles:
+    - role: webserver   # 기존 webserver 롤 재사용
+
+  tasks:
+    - name: Nginx 정상 동작 확인
+      uri:
+        url: "http://localhost/health"
+        method: GET
+        status_code: 200
+      register: health_check
+      retries: 5
+      delay: 5
+      until: health_check.status == 200
+
+  post_tasks:
+    - name: "[Post] 로드밸런서에 서버 복구"
+      haproxy:
+        state: enabled
+        host: "{{ inventory_hostname }}"
+        backend: web_backend
+        socket: /var/lib/haproxy/stats
+      delegate_to: "{{ groups['loadbalancers'] | first }}"
+      when: groups['loadbalancers'] is defined
+
+    - name: "[Post] 배포 완료"
+      debug:
+        msg: "{{ inventory_hostname }} 배포 완료 - 다음 서버로 이동"
+
+
+# ----------------------------
+# 앱서버 롤링 업데이트 (2번째 플레이)
+# 웹서버 배포 완료 후 순차 실행
+# ----------------------------
+- name: 롤링 업데이트 - 앱서버
+  hosts: appservers
+  serial: 1              # 1대씩 순차 배포
+  max_fail_percentage: 0
+
+  pre_tasks:
+    - name: "[Pre] 로드밸런서에서 앱서버 제거"
+      haproxy:
+        state: disabled
+        host: "{{ inventory_hostname }}"
+        backend: app_backend
+        socket: /var/lib/haproxy/stats
+        wait: yes
+      delegate_to: "{{ groups['loadbalancers'] | first }}"
+      when: groups['loadbalancers'] is defined
+
+  roles:
+    - role: app
+
+  post_tasks:
+    - name: "[Post] Spring Boot 헬스체크"
+      uri:
+        url: "http://localhost:8081/actuator/health"
+        method: GET
+        status_code: 200
+      register: app_health
+      retries: 10
+      delay: 10
+      until: app_health.json.status == 'UP'
+
+    - name: "[Post] 로드밸런서에 앱서버 복구"
+      haproxy:
+        state: enabled
+        host: "{{ inventory_hostname }}"
+        backend: app_backend
+        socket: /var/lib/haproxy/stats
+      delegate_to: "{{ groups['loadbalancers'] | first }}"
+      when: groups['loadbalancers'] is defined
+
+    - name: "[Post] 배포 요약"
+      debug:
+        msg: >
+          배포 완료:
+          서버={{ inventory_hostname }},
+          버전={{ app_version | default('latest') }},
+          시간={{ ansible_date_time.iso8601 }}

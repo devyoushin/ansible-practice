@@ -1,0 +1,43 @@
+# =============================================================
+# HAProxy 설치 및 설정
+# =============================================================
+---
+- name: HAProxy 설치
+  yum:
+    name: haproxy
+    state: present
+
+- name: HAProxy 설정 파일 배포
+  template:
+    src: haproxy.cfg.j2
+    dest: /etc/haproxy/haproxy.cfg
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "haproxy -c -f %s"   # 배포 전 설정 파일 문법 검사!
+  notify: reload haproxy
+
+- name: 로그 디렉토리 생성
+  file:
+    path: "{{ haproxy_log_dir }}"
+    state: directory
+    owner: haproxy
+    group: haproxy
+    mode: "0755"
+
+- name: firewalld 포트 허용
+  firewalld:
+    port: "{{ item }}/tcp"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  loop:
+    - "{{ haproxy_frontend_port }}"
+    - "{{ haproxy_frontend_https_port }}"
+    - "{{ haproxy_stats_port }}"
+
+- name: HAProxy 서비스 시작
+  service:
+    name: haproxy
+    state: started
+    enabled: yes

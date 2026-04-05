@@ -1,0 +1,28 @@
+# =============================================================
+# database role 진입점
+# include_tasks vs import_tasks:
+#   - import_tasks: 파싱 시 정적으로 로드 (when 조건이 tasks 각각에 적용)
+#   - include_tasks: 실행 시 동적으로 로드 (when 조건이 include 자체에 적용)
+# =============================================================
+---
+- name: MariaDB 설치
+  import_tasks: install.yml
+  tags: [database, install]
+
+- name: MariaDB 설정
+  import_tasks: configure.yml
+  tags: [database, configure]
+
+- name: DB / 사용자 생성
+  import_tasks: users_databases.yml
+  tags: [database, users]
+
+- name: 복제 설정 (replication_enabled=true 인 경우만)
+  import_tasks: replication.yml
+  when: mariadb_replication_enabled | bool
+  tags: [database, replication]
+
+- name: 자동 백업 설정
+  import_tasks: backup.yml
+  when: mariadb_backup_enabled | bool
+  tags: [database, backup]

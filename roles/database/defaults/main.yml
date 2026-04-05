@@ -1,0 +1,67 @@
+# =============================================================
+# database role 기본 변수
+# 실제 값은 group_vars/vault.yml 에서 ansible-vault로 관리
+# =============================================================
+
+# ----------------------------
+# MariaDB 설정
+# ----------------------------
+mariadb_version: "10.5"
+mariadb_port: 3306
+mariadb_bind_address: "0.0.0.0"
+mariadb_datadir: "/var/lib/mysql"
+mariadb_log_dir: "/var/log/mariadb"
+mariadb_pid_file: "/var/run/mariadb/mariadb.pid"
+
+# ----------------------------
+# 성능 튜닝
+# ----------------------------
+mariadb_max_connections: 200
+mariadb_innodb_buffer_pool_size: "512M"   # 보통 전체 RAM의 70~80%
+mariadb_innodb_log_file_size: "128M"
+mariadb_query_cache_size: "64M"
+mariadb_slow_query_log: true
+mariadb_slow_query_log_time: 2            # 2초 이상 쿼리를 slow log에 기록
+mariadb_max_allowed_packet: "64M"
+
+# ----------------------------
+# 문자셋 / 콜레이션
+# ----------------------------
+mariadb_character_set: "utf8mb4"
+mariadb_collation: "utf8mb4_unicode_ci"
+
+# ----------------------------
+# 계정 (실제 비밀번호는 vault.yml에서 주입)
+# ----------------------------
+mariadb_root_password: "{{ vault_db_root_password }}"
+
+# 생성할 데이터베이스 목록
+mariadb_databases:
+  - name: "appdb"
+    encoding: "utf8mb4"
+    collation: "utf8mb4_unicode_ci"
+
+# 생성할 사용자 목록
+mariadb_users:
+  - name: "appuser"
+    password: "{{ vault_db_app_password }}"
+    priv: "appdb.*:ALL"
+    host: "10.20.2.%"   # appserver 서브넷만 허용
+
+# ----------------------------
+# 복제(Replication) 설정
+# prod 환경에서만 true로 설정
+# ----------------------------
+mariadb_replication_enabled: false
+mariadb_replication_role: "master"        # master | slave
+mariadb_replication_user: "replicator"
+mariadb_replication_password: "{{ vault_db_replication_password | default('changeme') }}"
+mariadb_server_id: 1                      # 마스터=1, 슬레이브=2,3...
+
+# ----------------------------
+# 백업 설정
+# ----------------------------
+mariadb_backup_enabled: true
+mariadb_backup_dir: "/backup/mariadb"
+mariadb_backup_retention_days: 7
+mariadb_backup_schedule: "0 2 * * *"     # 매일 새벽 2시

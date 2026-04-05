@@ -1,0 +1,21 @@
+---
+- name: reload systemd daemon
+  systemd:
+    daemon_reload: yes
+
+- name: restart node_exporter
+  service:
+    name: node_exporter
+    state: restarted
+
+- name: restart prometheus
+  service:
+    name: prometheus
+    state: restarted
+
+- name: reload prometheus
+  uri:
+    url: "http://localhost:{{ prometheus_port }}/-/reload"
+    method: POST
+    status_code: 200
+  listen: "reload prometheus config"

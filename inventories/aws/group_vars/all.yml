@@ -1,0 +1,14 @@
+# =============================================================
+# AWS 동적 인벤토리 공통 변수
+# =============================================================
+
+# SSH 접속 설정
+ansible_user: ec2-user
+ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+
+# AWS 리전 (ec2.yml과 동일)
+aws_region: "ap-northeast-2"
+
+# 공통 태그
+project: "ansible-practice"
+managed_by: "ansible"

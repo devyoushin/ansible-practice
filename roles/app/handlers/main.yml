@@ -1,0 +1,19 @@
+# =============================================================
+# app role 핸들러
+# listen 키워드: 여러 notify에서 같은 핸들러를 호출할 때 유용
+# =============================================================
+---
+- name: reload systemd
+  systemd:
+    daemon_reload: yes
+
+- name: restart app
+  service:
+    name: "{{ app_name }}"
+    state: restarted
+  listen: "restart app"   # notify: "restart app" 으로 호출
+
+- name: reload app
+  service:
+    name: "{{ app_name }}"
+    state: reloaded

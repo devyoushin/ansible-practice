@@ -1,0 +1,6 @@
+# root 계정 편의용 클라이언트 설정 (비밀번호 자동 입력)
+# 파일 권한: 0600 (root만 읽기)
+[client]
+user     = root
+password = {{ mariadb_root_password }}
+socket   = /var/lib/mysql/mysql.sock

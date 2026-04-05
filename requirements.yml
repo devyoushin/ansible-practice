@@ -1,0 +1,29 @@
+# =============================================================
+# Ansible Galaxy 의존성 (롤 및 컬렉션)
+# 설치: ansible-galaxy install -r requirements.yml
+#       ansible-galaxy collection install -r requirements.yml
+# =============================================================
+
+collections:
+  # AWS 관련 모듈 (ec2, s3, rds 등)
+  - name: amazon.aws
+    version: ">=6.0.0"
+
+  # 커뮤니티 일반 모듈
+  - name: community.general
+    version: ">=7.0.0"
+
+  # MySQL/MariaDB 모듈
+  - name: community.mysql
+    version: ">=3.0.0"
+
+  # Docker 관련 모듈 (컨테이너 배포 시)
+  - name: community.docker
+    version: ">=3.0.0"
+
+# Galaxy 롤 (외부 롤 재사용 예시)
+# roles:
+#   - name: geerlingguy.nginx
+#     version: 3.2.0
+#   - name: geerlingguy.mysql
+#     version: 4.3.2

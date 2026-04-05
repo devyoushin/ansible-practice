@@ -1,0 +1,59 @@
+# =============================================================
+# Spring Boot 애플리케이션 설정 (Ansible 관리)
+# 환경: {{ environment }} | 호스트: {{ inventory_hostname }}
+# =============================================================
+
+spring:
+  application:
+    name: {{ app_name }}
+  profiles:
+    active: {{ app_spring_profile }}
+
+  datasource:
+    url: jdbc:mariadb://{{ app_db_host }}:{{ app_db_port }}/{{ app_db_name }}?useSSL=false&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    username: {{ app_db_user }}
+    password: {{ app_db_password }}
+    driver-class-name: org.mariadb.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+
+  jpa:
+    hibernate:
+      ddl-auto: "{{ 'validate' if environment == 'prod' else 'update' }}"
+    show-sql: "{{ 'false' if environment == 'prod' else 'true' }}"
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MariaDB103Dialect
+        format_sql: true
+
+server:
+  port: {{ app_port }}
+  tomcat:
+    threads:
+      max: 200
+      min-spare: 20
+  compression:
+    enabled: true
+
+management:
+  server:
+    port: {{ app_management_port }}
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    root: "{{ 'WARN' if environment == 'prod' else 'INFO' }}"
+    com.example: "{{ 'INFO' if environment == 'prod' else 'DEBUG' }}"
+  file:
+    name: {{ app_log_dir }}/app.log
+    max-size: 100MB
+    max-history: {{ log_retention_days }}

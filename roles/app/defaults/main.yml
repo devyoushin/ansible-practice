@@ -1,0 +1,56 @@
+# =============================================================
+# app role 기본 변수 (Spring Boot 앱 배포)
+# =============================================================
+
+# ----------------------------
+# Java / JDK 설정
+# ----------------------------
+java_version: "11"
+java_package: "java-11-amazon-corretto"
+
+# ----------------------------
+# 애플리케이션 설정
+# ----------------------------
+app_name: "myapp"
+app_version: "1.0.0"
+app_user: "appuser"
+app_group: "appuser"
+app_home: "/opt/{{ app_name }}"
+app_log_dir: "/var/log/{{ app_name }}"
+app_pid_dir: "/var/run/{{ app_name }}"
+app_config_dir: "/etc/{{ app_name }}"
+
+# 실행 포트
+app_port: 8080
+app_management_port: 8081   # Spring Boot Actuator
+
+# JAR 파일 (실제 배포 시 S3 or Nexus URL로 변경)
+app_artifact_url: "https://your-artifact-repo.example.com/{{ app_name }}-{{ app_version }}.jar"
+app_jar_path: "{{ app_home }}/{{ app_name }}.jar"
+
+# ----------------------------
+# JVM 옵션
+# ----------------------------
+app_jvm_opts: >-
+  -Xms512m
+  -Xmx1024m
+  -XX:+UseG1GC
+  -XX:MaxGCPauseMillis=200
+  -Djava.security.egd=file:/dev/./urandom
+
+# ----------------------------
+# Spring Boot 설정
+# ----------------------------
+app_spring_profile: "{{ environment }}"    # dev / staging / prod
+app_db_host: "{{ hostvars[groups['dbservers'][0]]['ansible_host'] }}"
+app_db_port: 3306
+app_db_name: "appdb"
+app_db_user: "appuser"
+app_db_password: "{{ vault_db_app_password }}"
+
+# ----------------------------
+# 헬스체크
+# ----------------------------
+app_health_check_url: "http://localhost:{{ app_management_port }}/actuator/health"
+app_health_check_retries: 10
+app_health_check_delay: 10

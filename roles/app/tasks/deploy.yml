@@ -1,0 +1,106 @@
+# =============================================================
+# 애플리케이션 배포
+# block/rescue/always 패턴으로 에러 핸들링
+# =============================================================
+---
+# ----------------------------
+# block/rescue/always: 에러 핸들링 핵심 패턴
+#   - block: 정상 실행 tasks
+#   - rescue: 에러 발생 시 실행 (rollback 등)
+#   - always: 성공/실패 무관하게 항상 실행 (cleanup 등)
+# ----------------------------
+- name: 애플리케이션 배포
+  block:
+    - name: 기존 JAR 백업
+      copy:
+        src: "{{ app_jar_path }}"
+        dest: "{{ app_jar_path }}.bak"
+        remote_src: yes
+      ignore_errors: yes   # 최초 배포 시 기존 파일 없어도 됨
+
+    - name: JAR 파일 다운로드
+      get_url:
+        url: "{{ app_artifact_url }}"
+        dest: "{{ app_jar_path }}"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0644"
+        # checksum: "sha256:abc123..."   # 운영 환경에서는 체크섬 검증 권장
+
+    - name: 앱 설정 파일 배포
+      template:
+        src: application.yml.j2
+        dest: "{{ app_config_dir }}/application.yml"
+        owner: "{{ app_user }}"
+        group: "{{ app_group }}"
+        mode: "0640"
+      notify: restart app
+
+    - name: systemd 서비스 유닛 배포
+      template:
+        src: app.service.j2
+        dest: "/etc/systemd/system/{{ app_name }}.service"
+        owner: root
+        group: root
+        mode: "0644"
+      notify:
+        - reload systemd
+        - restart app
+
+    - name: 서비스 활성화 및 시작
+      service:
+        name: "{{ app_name }}"
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+    # ----------------------------
+    # until 루프: 헬스체크가 성공할 때까지 재시도
+    # 배포 후 앱이 완전히 기동될 때까지 대기
+    # ----------------------------
+    - name: 헬스체크 (기동 완료 대기)
+      uri:
+        url: "{{ app_health_check_url }}"
+        method: GET
+        status_code: 200
+        return_content: yes
+      register: health_result
+      until: >
+        health_result.status == 200 and
+        (health_result.json.status is defined) and
+        (health_result.json.status == 'UP')
+      retries: "{{ app_health_check_retries }}"
+      delay: "{{ app_health_check_delay }}"
+
+    - name: 배포 성공 메시지
+      debug:
+        msg: "{{ app_name }} v{{ app_version }} 배포 완료 on {{ inventory_hostname }}"
+
+  rescue:
+    - name: "[ROLLBACK] 배포 실패 - 이전 버전으로 복구"
+      copy:
+        src: "{{ app_jar_path }}.bak"
+        dest: "{{ app_jar_path }}"
+        remote_src: yes
+      ignore_errors: yes
+
+    - name: "[ROLLBACK] 이전 버전으로 서비스 재시작"
+      service:
+        name: "{{ app_name }}"
+        state: restarted
+      ignore_errors: yes
+
+    - name: "[ROLLBACK] 배포 실패 알림"
+      debug:
+        msg: "배포 실패! {{ inventory_hostname }}에서 롤백 완료. 로그 확인: {{ app_log_dir }}/app.log"
+
+    - name: 배포 실패로 플레이 중단
+      fail:
+        msg: "{{ app_name }} 배포 실패 on {{ inventory_hostname }}"
+
+  always:
+    - name: 배포 결과 로그 기록
+      lineinfile:
+        path: "{{ app_log_dir }}/deploy.log"
+        line: "{{ ansible_date_time.iso8601 }} | {{ app_version }} | {{ inventory_hostname }} | {{ ansible_failed_task is defined | ternary('FAILED', 'SUCCESS') }}"
+        create: yes

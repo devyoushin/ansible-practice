@@ -1,0 +1,33 @@
+#!/bin/bash
+# =============================================================
+# MariaDB 자동 백업 스크립트
+# Ansible 관리 - 직접 수정 금지
+# 대상: {{ inventory_hostname }} ({{ environment }})
+# =============================================================
+
+set -euo pipefail
+
+BACKUP_DIR="{{ mariadb_backup_dir }}"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+BACKUP_FILE="${BACKUP_DIR}/mariadb_{{ inventory_hostname }}_${TIMESTAMP}.sql.gz"
+
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 백업 시작: ${BACKUP_FILE}"
+
+# 전체 DB 덤프 (gzip 압축)
+mysqldump \
+  --user=root \
+  --password='{{ mariadb_root_password }}' \
+  --all-databases \
+  --single-transaction \
+  --routines \
+  --events \
+  --triggers \
+  | gzip > "${BACKUP_FILE}"
+
+# 파일 크기 확인
+SIZE=$(du -sh "${BACKUP_FILE}" | cut -f1)
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] 백업 완료: ${BACKUP_FILE} (${SIZE})"
+
+# 오래된 백업 정리
+find "${BACKUP_DIR}" -name "*.sql.gz" -mtime +{{ mariadb_backup_retention_days }} -delete
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] ${BACKUP_RETENTION_DAYS}일 이전 백업 삭제 완료"

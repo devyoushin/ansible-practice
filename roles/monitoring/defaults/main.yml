@@ -1,0 +1,41 @@
+# =============================================================
+# monitoring role 기본 변수
+# Node Exporter (모든 서버) + Prometheus (monitoring 서버)
+# =============================================================
+
+# ----------------------------
+# Node Exporter (각 서버의 메트릭 수집)
+# ----------------------------
+node_exporter_version: "1.7.0"
+node_exporter_port: 9100
+node_exporter_user: "node_exporter"
+node_exporter_install_dir: "/opt/node_exporter"
+
+# ----------------------------
+# Prometheus (중앙 수집 서버)
+# monitoring 그룹 서버에만 설치됨
+# ----------------------------
+prometheus_version: "2.50.0"
+prometheus_port: 9090
+prometheus_user: "prometheus"
+prometheus_data_dir: "/var/lib/prometheus"
+prometheus_config_dir: "/etc/prometheus"
+
+# 데이터 보관 기간
+prometheus_retention_time: "{{ '90d' if environment == 'prod' else '30d' }}"
+
+# 스크레이핑 간격
+prometheus_scrape_interval: "15s"
+prometheus_evaluation_interval: "15s"
+
+# 알림 (Alertmanager 연동)
+prometheus_alertmanager_host: "localhost"
+prometheus_alertmanager_port: 9093
+
+# ----------------------------
+# 알림 규칙 임계값
+# ----------------------------
+alert_cpu_threshold: 85        # CPU 85% 이상 시 알림
+alert_memory_threshold: 90     # 메모리 90% 이상 시 알림
+alert_disk_threshold: 85       # 디스크 85% 이상 시 알림
+alert_duration: "5m"           # 5분 이상 지속 시 발화

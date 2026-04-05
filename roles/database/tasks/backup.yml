@@ -1,0 +1,40 @@
+# =============================================================
+# 자동 백업 설정 (mysqldump + cron)
+# =============================================================
+---
+- name: 백업 디렉토리 생성
+  file:
+    path: "{{ mariadb_backup_dir }}"
+    state: directory
+    owner: mysql
+    group: mysql
+    mode: "0750"
+
+- name: 백업 스크립트 배포
+  template:
+    src: backup.sh.j2
+    dest: /usr/local/bin/mariadb-backup.sh
+    owner: root
+    group: root
+    mode: "0750"
+
+- name: cron 등록 (자동 백업)
+  cron:
+    name: "MariaDB 자동 백업"
+    cron_file: mariadb-backup
+    user: mysql
+    job: "/usr/local/bin/mariadb-backup.sh >> {{ mariadb_log_dir }}/backup.log 2>&1"
+    minute: "{{ mariadb_backup_schedule.split(' ')[0] }}"
+    hour: "{{ mariadb_backup_schedule.split(' ')[1] }}"
+    day: "{{ mariadb_backup_schedule.split(' ')[2] }}"
+    month: "{{ mariadb_backup_schedule.split(' ')[3] }}"
+    weekday: "{{ mariadb_backup_schedule.split(' ')[4] }}"
+
+- name: 오래된 백업 정리 cron
+  cron:
+    name: "MariaDB 오래된 백업 정리"
+    cron_file: mariadb-backup-cleanup
+    user: root
+    job: "find {{ mariadb_backup_dir }} -name '*.sql.gz' -mtime +{{ mariadb_backup_retention_days }} -delete"
+    minute: "30"
+    hour: "3"

@@ -1,0 +1,45 @@
+# =============================================================
+# DB / 사용자 생성
+# with_items / loop 활용 예시 - 여러 DB/유저를 한 번에 처리
+# =============================================================
+---
+- name: 데이터베이스 생성
+  mysql_db:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    name: "{{ item.name }}"
+    encoding: "{{ item.encoding | default(mariadb_character_set) }}"
+    collation: "{{ item.collation | default(mariadb_collation) }}"
+    state: present
+  loop: "{{ mariadb_databases }}"
+  no_log: true
+
+- name: DB 사용자 생성 및 권한 부여
+  mysql_user:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    name: "{{ item.name }}"
+    password: "{{ item.password }}"
+    priv: "{{ item.priv }}"
+    host: "{{ item.host | default('%') }}"
+    state: present
+  loop: "{{ mariadb_users }}"
+  no_log: true
+
+# ----------------------------
+# register + debug: 결과 캡처 예시
+# ----------------------------
+- name: 생성된 데이터베이스 목록 확인
+  mysql_db:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    name: all
+    state: dump
+    target: /dev/null
+  register: db_list_result
+  changed_when: false
+  no_log: true
+
+- name: 데이터베이스 상태 출력
+  debug:
+    msg: "DB 설정 완료: {{ mariadb_databases | map(attribute='name') | list }}"

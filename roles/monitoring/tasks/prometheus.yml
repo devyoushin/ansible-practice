@@ -1,0 +1,88 @@
+# =============================================================
+# Prometheus 설치 (monitoring 그룹 서버에만 적용)
+# =============================================================
+---
+- name: prometheus 전용 사용자 생성
+  user:
+    name: "{{ prometheus_user }}"
+    system: yes
+    shell: /sbin/nologin
+    create_home: no
+
+- name: Prometheus 디렉토리 생성
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ prometheus_user }}"
+    group: "{{ prometheus_user }}"
+    mode: "0755"
+  loop:
+    - "{{ prometheus_config_dir }}"
+    - "{{ prometheus_config_dir }}/rules"
+    - "{{ prometheus_data_dir }}"
+
+- name: Prometheus 다운로드
+  get_url:
+    url: "https://github.com/prometheus/prometheus/releases/download/v{{ prometheus_version }}/prometheus-{{ prometheus_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/prometheus-{{ prometheus_version }}.tar.gz"
+    mode: "0644"
+
+- name: 압축 해제
+  unarchive:
+    src: "/tmp/prometheus-{{ prometheus_version }}.tar.gz"
+    dest: /opt
+    remote_src: yes
+    creates: "/opt/prometheus-{{ prometheus_version }}.linux-amd64"
+
+- name: 바이너리 링크 생성
+  file:
+    src: "/opt/prometheus-{{ prometheus_version }}.linux-amd64/{{ item }}"
+    dest: "/usr/local/bin/{{ item }}"
+    state: link
+  loop:
+    - prometheus
+    - promtool
+
+- name: Prometheus 설정 파일 배포
+  template:
+    src: prometheus.yml.j2
+    dest: "{{ prometheus_config_dir }}/prometheus.yml"
+    owner: "{{ prometheus_user }}"
+    group: "{{ prometheus_user }}"
+    mode: "0644"
+    validate: "promtool check config %s"  # 설정 파일 문법 검사
+  notify: restart prometheus
+
+- name: 알림 규칙 배포
+  template:
+    src: alert_rules.yml.j2
+    dest: "{{ prometheus_config_dir }}/rules/alert_rules.yml"
+    owner: "{{ prometheus_user }}"
+    group: "{{ prometheus_user }}"
+    mode: "0644"
+  notify: restart prometheus
+
+- name: systemd 서비스 유닛 배포
+  template:
+    src: prometheus.service.j2
+    dest: /etc/systemd/system/prometheus.service
+    owner: root
+    group: root
+    mode: "0644"
+  notify:
+    - reload systemd daemon
+    - restart prometheus
+
+- name: Prometheus 서비스 시작
+  service:
+    name: prometheus
+    state: started
+    enabled: yes
+    daemon_reload: yes
+
+- name: Prometheus 포트 허용
+  firewalld:
+    port: "{{ prometheus_port }}/tcp"
+    permanent: yes
+    state: enabled
+    immediate: yes

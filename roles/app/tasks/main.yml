@@ -1,0 +1,8 @@
+---
+- name: Java 설치
+  import_tasks: install.yml
+  tags: [app, install]
+
+- name: 앱 배포
+  import_tasks: deploy.yml
+  tags: [app, deploy]

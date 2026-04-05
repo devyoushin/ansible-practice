@@ -1,0 +1,79 @@
+# =============================================================
+# Prometheus 설정 (Ansible 관리 - 직접 수정 금지)
+# 환경: {{ environment }}
+# =============================================================
+
+global:
+  scrape_interval:     {{ prometheus_scrape_interval }}
+  evaluation_interval: {{ prometheus_evaluation_interval }}
+  external_labels:
+    environment: "{{ environment }}"
+    region: "{{ aws_region }}"
+
+# 알림 규칙 파일
+rule_files:
+  - "{{ prometheus_config_dir }}/rules/*.yml"
+
+# Alertmanager 연동
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - "{{ prometheus_alertmanager_host }}:{{ prometheus_alertmanager_port }}"
+
+scrape_configs:
+  # ----------------------------
+  # Prometheus 자체 메트릭
+  # ----------------------------
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:{{ prometheus_port }}"]
+
+  # ----------------------------
+  # 웹서버 Node Exporter
+  # Ansible inventory에서 자동 생성
+  # ----------------------------
+  - job_name: "webservers"
+    static_configs:
+      - targets:
+{% for host in groups['webservers'] %}
+          - "{{ hostvars[host]['ansible_host'] }}:{{ node_exporter_port }}"
+{% endfor %}
+        labels:
+          role: "webserver"
+          environment: "{{ environment }}"
+
+  # ----------------------------
+  # 앱서버 Node Exporter
+  # ----------------------------
+  - job_name: "appservers"
+    static_configs:
+      - targets:
+{% for host in groups['appservers'] %}
+          - "{{ hostvars[host]['ansible_host'] }}:{{ node_exporter_port }}"
+{% endfor %}
+        labels:
+          role: "appserver"
+
+  # ----------------------------
+  # DB 서버 Node Exporter
+  # ----------------------------
+  - job_name: "dbservers"
+    static_configs:
+      - targets:
+{% for host in groups['dbservers'] %}
+          - "{{ hostvars[host]['ansible_host'] }}:{{ node_exporter_port }}"
+{% endfor %}
+        labels:
+          role: "dbserver"
+
+  # ----------------------------
+  # Spring Boot Actuator 메트릭
+  # ----------------------------
+  - job_name: "spring_boot"
+    metrics_path: "/actuator/prometheus"
+    static_configs:
+      - targets:
+{% for host in groups['appservers'] %}
+          - "{{ hostvars[host]['ansible_host'] }}:8081"
+{% endfor %}

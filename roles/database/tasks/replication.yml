@@ -1,0 +1,97 @@
+# =============================================================
+# MariaDB 복제(Replication) 설정
+# Master-Slave 구성 (prod 환경에서 활성화)
+#
+# 실행 흐름:
+#   1. 마스터: 복제용 계정 생성, binary log 활성화
+#   2. 슬레이브: CHANGE MASTER TO 설정, START SLAVE
+#
+# 사용 예시 (prod):
+#   mariadb_replication_enabled: true
+#   mariadb_replication_role: master   # 마스터 서버
+#   mariadb_server_id: 1
+# =============================================================
+---
+# ----------------------------
+# 마스터 설정
+# ----------------------------
+- name: "[Master] 복제 계정 생성"
+  mysql_user:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    name: "{{ mariadb_replication_user }}"
+    password: "{{ mariadb_replication_password }}"
+    priv: "*.*:REPLICATION SLAVE"
+    host: "%"
+    state: present
+  when: mariadb_replication_role == 'master'
+  no_log: true
+
+- name: "[Master] binary log 상태 조회"
+  mysql_replication:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    mode: getmaster
+  register: master_status
+  when: mariadb_replication_role == 'master'
+  no_log: true
+
+- name: "[Master] 복제 정보 출력"
+  debug:
+    msg: "Master: file={{ master_status.File }}, pos={{ master_status.Position }}"
+  when: mariadb_replication_role == 'master'
+
+# ----------------------------
+# 슬레이브 설정
+# delegate_to: 마스터 서버에서 정보를 가져와 슬레이브에 적용하는 핵심 패턴
+# ----------------------------
+- name: "[Slave] 마스터 정보 수집"
+  mysql_replication:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    mode: getmaster
+  delegate_to: "{{ groups['dbservers'] | first }}"   # 마스터 서버에서 실행
+  register: master_info
+  when: mariadb_replication_role == 'slave'
+  no_log: true
+
+- name: "[Slave] CHANGE MASTER TO 설정"
+  mysql_replication:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    mode: changemaster
+    master_host: "{{ hostvars[groups['dbservers'] | first]['ansible_host'] }}"
+    master_user: "{{ mariadb_replication_user }}"
+    master_password: "{{ mariadb_replication_password }}"
+    master_log_file: "{{ master_info.File }}"
+    master_log_pos: "{{ master_info.Position }}"
+  when: mariadb_replication_role == 'slave'
+  no_log: true
+
+- name: "[Slave] START SLAVE"
+  mysql_replication:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    mode: startslave
+  when: mariadb_replication_role == 'slave'
+
+- name: "[Slave] 복제 상태 확인"
+  mysql_replication:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    mode: getslave
+  register: slave_status
+  when: mariadb_replication_role == 'slave'
+
+# ----------------------------
+# assert: 조건을 만족하지 않으면 즉시 실패
+# 복제 상태가 정상인지 검증하는 패턴
+# ----------------------------
+- name: "[Slave] 복제 상태 검증"
+  assert:
+    that:
+      - slave_status.Slave_IO_Running == 'Yes'
+      - slave_status.Slave_SQL_Running == 'Yes'
+    fail_msg: "복제 에러! IO={{ slave_status.Slave_IO_Running }}, SQL={{ slave_status.Slave_SQL_Running }}"
+    success_msg: "복제 정상 동작 중"
+  when: mariadb_replication_role == 'slave'

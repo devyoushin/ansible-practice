@@ -1,0 +1,75 @@
+# =============================================================
+# MariaDB 설치 (Amazon Linux 2 기준)
+# =============================================================
+---
+- name: MariaDB yum 저장소 추가
+  yum_repository:
+    name: MariaDB
+    description: "MariaDB {{ mariadb_version }} YUM Repository"
+    baseurl: "https://downloads.mariadb.com/MariaDB/mariadb-{{ mariadb_version }}/yum/rhel7-amd64"
+    gpgkey: "https://downloads.mariadb.com/MariaDB/RPM-GPG-KEY-MariaDB"
+    gpgcheck: yes
+    enabled: yes
+
+- name: MariaDB 패키지 설치
+  yum:
+    name:
+      - MariaDB-server
+      - MariaDB-client
+      - python3-PyMySQL    # Ansible mysql_* 모듈에 필요
+    state: present
+
+- name: 로그 디렉토리 생성
+  file:
+    path: "{{ mariadb_log_dir }}"
+    state: directory
+    owner: mysql
+    group: mysql
+    mode: "0755"
+
+- name: MariaDB 서비스 시작 및 부팅 시 자동 시작
+  service:
+    name: mariadb
+    state: started
+    enabled: yes
+
+# ----------------------------
+# root 비밀번호 설정 (첫 설치 시)
+# 이미 설정된 경우 idempotent하게 skip
+# ----------------------------
+- name: root 비밀번호 설정
+  mysql_user:
+    login_user: root
+    login_password: ""
+    name: root
+    password: "{{ mariadb_root_password }}"
+    host_all: yes
+    state: present
+  ignore_errors: yes   # 이미 비밀번호가 있으면 에러 무시
+  no_log: true         # 비밀번호가 로그에 노출되지 않도록
+
+- name: .my.cnf 작성 (root 편의용)
+  template:
+    src: my.cnf.client.j2
+    dest: /root/.my.cnf
+    owner: root
+    group: root
+    mode: "0600"
+  no_log: true
+
+- name: 익명 사용자 제거
+  mysql_user:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    name: ""
+    host_all: yes
+    state: absent
+  no_log: true
+
+- name: test 데이터베이스 제거
+  mysql_db:
+    login_user: root
+    login_password: "{{ mariadb_root_password }}"
+    name: test
+    state: absent
+  no_log: true
