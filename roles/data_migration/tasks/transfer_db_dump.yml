@@ -1,0 +1,120 @@
+---
+# ============================================================
+# DB 덤프 이관 특화 태스크
+# 권장 시나리오:
+#   - MySQL / PostgreSQL 덤프 파일 이관
+#   - 덤프 → 압축 → 전송 → 압축해제 → 복원 파이프라인
+# ============================================================
+
+# ----- DB 유형 변수 기본값 (db_dump 모드 전용) -----
+# db_type: mysql | postgresql
+# db_host: localhost
+# db_port: 3306
+# db_name: mydb
+# db_user: root
+# db_password: ""
+# db_dump_path: /tmp/migration_dump_<job_id>.sql.gz
+
+- name: "[db_dump] 덤프 파일 경로 설정"
+  ansible.builtin.set_fact:
+    _db_dump_file: "{{ migration_src_path }}/migration_dump_{{ migration_job_id }}.sql.gz"
+  tags: [migration, db_dump]
+
+- name: "[db_dump] MySQL 덤프 생성"
+  ansible.builtin.shell: >
+    mysqldump
+    --host={{ db_host | default('localhost') }}
+    --port={{ db_port | default(3306) }}
+    --user={{ db_user | default('root') }}
+    --password={{ db_password | default('') }}
+    --single-transaction
+    --routines
+    --triggers
+    --events
+    --compress
+    {{ db_name }}
+    | pigz -{{ tar_compress_level | default(3) }}
+    > "{{ _db_dump_file }}"
+    2>&1 | tee -a "{{ migration_log_dir }}/{{ migration_log_file }}"
+  when: db_type | default('mysql') == 'mysql'
+  register: _mysql_dump
+  changed_when: true
+  no_log: true
+  tags: [migration, db_dump]
+
+- name: "[db_dump] PostgreSQL 덤프 생성"
+  ansible.builtin.shell: >
+    PGPASSWORD="{{ db_password | default('') }}"
+    pg_dump
+    --host={{ db_host | default('localhost') }}
+    --port={{ db_port | default(5432) }}
+    --username={{ db_user | default('postgres') }}
+    --format=custom
+    --compress=3
+    --file="{{ _db_dump_file }}"
+    {{ db_name }}
+    2>&1 | tee -a "{{ migration_log_dir }}/{{ migration_log_file }}"
+  when: db_type | default('mysql') == 'postgresql'
+  register: _pg_dump
+  changed_when: true
+  no_log: true
+  tags: [migration, db_dump]
+
+- name: "[db_dump] 덤프 파일 크기 확인"
+  ansible.builtin.stat:
+    path: "{{ _db_dump_file }}"
+  register: _dump_stat
+  tags: [migration, db_dump]
+
+- name: "[db_dump] 덤프 파일 크기 출력"
+  ansible.builtin.debug:
+    msg: "덤프 파일 크기: {{ (_dump_stat.stat.size / 1024 / 1024) | round(2) }} MB"
+  tags: [migration, db_dump]
+
+- name: "[db_dump] rsync 로 덤프 파일 전송"
+  ansible.builtin.shell: >
+    rsync -avh --progress --partial
+    -e "ssh -o StrictHostKeyChecking=no"
+    "{{ _db_dump_file }}"
+    "{{ migration_dst_user }}@{{ migration_dst_host }}:{{ migration_dst_path }}/"
+    2>&1 | tee -a "{{ migration_log_dir }}/{{ migration_log_file }}"
+  register: _dump_transfer
+  retries: "{{ migration_retries }}"
+  delay: "{{ migration_retry_delay }}"
+  until: _dump_transfer.rc == 0
+  changed_when: _dump_transfer.rc == 0
+  tags: [migration, db_dump]
+
+- name: "[db_dump] 대상 서버 MySQL 복원 (선택적)"
+  ansible.builtin.shell: >
+    ssh -o StrictHostKeyChecking=no
+    {{ migration_dst_user }}@{{ migration_dst_host }}
+    "pigz -d -c '{{ migration_dst_path }}/$(basename {{ _db_dump_file }})'
+    | mysql --host={{ db_dst_host | default('localhost') }}
+            --user={{ db_dst_user | default('root') }}
+            --password={{ db_dst_password | default('') }}
+            {{ db_name }}"
+  when:
+    - db_type | default('mysql') == 'mysql'
+    - db_auto_restore | default(false) | bool
+  changed_when: true
+  no_log: true
+  tags: [migration, db_dump, restore]
+
+- name: "[db_dump] 대상 서버 PostgreSQL 복원 (선택적)"
+  ansible.builtin.shell: >
+    ssh -o StrictHostKeyChecking=no
+    {{ migration_dst_user }}@{{ migration_dst_host }}
+    "PGPASSWORD='{{ db_dst_password | default('') }}'
+    pg_restore
+    --host={{ db_dst_host | default('localhost') }}
+    --username={{ db_dst_user | default('postgres') }}
+    --dbname={{ db_name }}
+    --clean
+    '{{ migration_dst_path }}/$(basename {{ _db_dump_file }})'"
+  when:
+    - db_type | default('mysql') == 'postgresql'
+    - db_auto_restore | default(false) | bool
+  changed_when: true
+  no_log: true
+  tags: [migration, db_dump, restore]

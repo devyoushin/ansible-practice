@@ -1,0 +1,67 @@
+---
+# ============================================================
+# 이관 결과 독립 검증 플레이북
+# - 이관 작업과 분리해서 검증만 별도 실행 가능
+# - 기존 체크섬 파일 없으면 새로 생성 후 대상과 비교
+#
+# 사용 예시:
+#   ansible-playbook playbooks/data_migration_verify.yml \
+#     -i inventories/prod/hosts.ini \
+#     -e "migration_src_path=/data/uploads" \
+#     -e "migration_dst_host=10.0.1.20" \
+#     -e "migration_dst_path=/mnt/new-storage/uploads"
+# ============================================================
+
+- name: "이관 결과 검증"
+  hosts: "{{ migration_hosts | default('all') }}"
+  gather_facts: true
+
+  vars:
+    migration_verify: true
+    migration_verify_sample_rate: 100
+    migration_checksum_algo: sha256
+
+  tasks:
+    - name: "소스 체크섬 생성"
+      ansible.builtin.shell: >
+        find "{{ migration_src_path }}" -type f -print0
+        | xargs -0 sha256sum
+        | sed 's| {{ migration_src_path }}/| |g'
+        | sort
+        > "/tmp/verify_src_{{ ansible_date_time.epoch }}.txt"
+      register: _src_cs
+      changed_when: true
+
+    - name: "대상 서버 체크섬 생성"
+      ansible.builtin.shell: >
+        ssh -o StrictHostKeyChecking=no
+        {{ migration_dst_user | default(ansible_user) }}@{{ migration_dst_host }}
+        "find '{{ migration_dst_path }}' -type f -print0
+         | xargs -0 sha256sum
+         | sed 's| {{ migration_dst_path }}/| |g'
+         | sort"
+        > "/tmp/verify_dst_{{ ansible_date_time.epoch }}.txt"
+      register: _dst_cs
+      changed_when: true
+
+    - name: "체크섬 비교"
+      ansible.builtin.shell: >
+        diff
+        "/tmp/verify_src_{{ ansible_date_time.epoch }}.txt"
+        "/tmp/verify_dst_{{ ansible_date_time.epoch }}.txt"
+      register: _diff
+      changed_when: false
+      failed_when: _diff.rc != 0
+
+    - name: "검증 결과 출력"
+      ansible.builtin.debug:
+        msg: "검증 통과: 소스와 대상 파일이 완전히 일치합니다."
+      when: _diff.rc == 0
+
+    - name: "임시 파일 정리"
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "/tmp/verify_src_{{ ansible_date_time.epoch }}.txt"
+        - "/tmp/verify_dst_{{ ansible_date_time.epoch }}.txt"

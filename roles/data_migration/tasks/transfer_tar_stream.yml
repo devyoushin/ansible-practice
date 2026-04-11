@@ -1,0 +1,65 @@
+---
+# ============================================================
+# tar 스트리밍 이관 - tar | ssh 파이프 방식
+# 권장 시나리오:
+#   - 수백만 개 소형 파일 (inode 집약적 디렉터리)
+#   - NFS/글로벌 FS에서 rsync open() 오버헤드가 클 때
+#   - 네트워크 대역폭 < 디스크 I/O 속도일 때 (압축 효과 극대화)
+# 주의: 중단 시 이어받기 불가 → 재실행 필요
+# ============================================================
+
+- name: "[tar_stream] 압축 프로그램 설치 확인"
+  ansible.builtin.package:
+    name: "{{ tar_compress_algo }}"
+    state: present
+  when: tar_compress_algo not in ['none', 'gzip', 'bzip2', 'xz']
+  tags: [migration, tar_stream]
+
+- name: "[tar_stream] 대상 서버에 목적지 디렉터리 생성"
+  ansible.builtin.shell: >
+    ssh -o StrictHostKeyChecking=no
+    {{ migration_dst_user }}@{{ migration_dst_host }}
+    "mkdir -p '{{ migration_dst_path }}'"
+  changed_when: true
+  tags: [migration, tar_stream]
+
+- name: "[tar_stream] 압축 커맨드 설정"
+  ansible.builtin.set_fact:
+    _compress_cmd: >-
+      {{
+        'pigz -' + tar_compress_level | string if tar_compress_algo == 'pigz'
+        else 'lz4 -' + tar_compress_level | string if tar_compress_algo == 'lz4'
+        else 'zstd -' + tar_compress_level | string if tar_compress_algo == 'zstd'
+        else 'gzip -' + tar_compress_level | string if tar_compress_algo == 'gzip'
+        else 'cat'
+      }}
+    _tar_compress_flag: >-
+      {{
+        '' if tar_compress_algo == 'none'
+        else '--use-compress-program=' + tar_compress_algo
+      }}
+  tags: [migration, tar_stream]
+
+- name: "[tar_stream] tar 파이프 스트리밍 전송"
+  ansible.builtin.shell: >
+    tar -cf - {{ _tar_compress_flag }}
+    -C "{{ migration_src_path | dirname }}"
+    "{{ migration_src_path | basename }}"
+    | pv -ptebar
+    | ssh -o StrictHostKeyChecking=no -C
+    {{ migration_dst_user }}@{{ migration_dst_host }}
+    "tar -xf {{ _tar_compress_flag }} -C '{{ migration_dst_path }}'"
+    2>&1 | tee -a "{{ migration_log_dir }}/{{ migration_log_file }}"
+  register: _tar_result
+  retries: "{{ migration_retries }}"
+  delay: "{{ migration_retry_delay }}"
+  until: _tar_result.rc == 0
+  changed_when: _tar_result.rc == 0
+  async: "{{ migration_timeout }}"
+  poll: 60
+  tags: [migration, tar_stream]
+
+- name: "[tar_stream] 전송 결과 로그"
+  ansible.builtin.debug:
+    msg: "tar 스트리밍 완료 (rc={{ _tar_result.rc }})"
+  tags: [migration, tar_stream]

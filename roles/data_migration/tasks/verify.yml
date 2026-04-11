@@ -1,0 +1,68 @@
+---
+# ============================================================
+# 이관 후 검증 - 대상 서버에서 체크섬 생성 후 소스와 비교
+# ============================================================
+
+- name: "[verify] 대상 서버에 로그 디렉터리 생성"
+  ansible.builtin.shell: >
+    ssh -o StrictHostKeyChecking=no
+    {{ migration_dst_user }}@{{ migration_dst_host }}
+    "mkdir -p '{{ migration_log_dir }}'"
+  changed_when: true
+  tags: [migration, verify]
+
+- name: "[verify] 대상 서버에서 체크섬 생성"
+  ansible.builtin.shell: |
+    SAMPLE_RATE="{{ migration_verify_sample_rate }}"
+    DST_CHECKSUM="{{ migration_log_dir }}/checksum_dst_{{ migration_job_id }}.txt"
+
+    ssh -o StrictHostKeyChecking=no \
+        {{ migration_dst_user }}@{{ migration_dst_host }} \
+        "find '{{ migration_dst_path }}' -type f -print \
+         | awk 'BEGIN{srand()} {if(rand()*100 < ${SAMPLE_RATE}) print}' \
+         | sed 's|{{ migration_dst_path }}/||' \
+         | xargs -I{} {{ migration_checksum_algo }}sum '{{ migration_dst_path }}/{}' \
+         | sed 's| {{ migration_dst_path }}/| |' \
+         | sort" \
+        > "${DST_CHECKSUM}"
+    echo "${DST_CHECKSUM}"
+  register: _dst_checksum_result
+  changed_when: true
+  tags: [migration, verify]
+
+- name: "[verify] 소스 체크섬 경로 (상대경로 기준 변환)"
+  ansible.builtin.shell: >
+    sed 's| {{ migration_src_path }}/| |g'
+    "{{ migration_checksum_before }}"
+    | sort
+    > "{{ migration_log_dir }}/checksum_src_normalized_{{ migration_job_id }}.txt"
+  changed_when: true
+  tags: [migration, verify]
+
+- name: "[verify] 체크섬 비교"
+  ansible.builtin.shell: >
+    diff
+    "{{ migration_log_dir }}/checksum_src_normalized_{{ migration_job_id }}.txt"
+    "{{ migration_log_dir }}/checksum_dst_{{ migration_job_id }}.txt"
+    > "{{ migration_log_dir }}/checksum_diff_{{ migration_job_id }}.txt"
+    && echo "PASS: 모든 파일 일치"
+    || (echo "FAIL: 불일치 파일 존재" && cat "{{ migration_log_dir }}/checksum_diff_{{ migration_job_id }}.txt")
+  register: _verify_result
+  changed_when: false
+  failed_when: _verify_result.rc != 0
+  tags: [migration, verify]
+
+- name: "[verify] 검증 결과 출력"
+  ansible.builtin.debug:
+    msg: "{{ _verify_result.stdout_lines }}"
+  tags: [migration, verify]
+
+- name: "[verify] 검증 결과 로그 기록"
+  ansible.builtin.lineinfile:
+    path: "{{ migration_log_dir }}/{{ migration_log_file }}"
+    line: >
+      [{{ ansible_date_time.iso8601 }}] VERIFY={{ 'PASS' if _verify_result.rc == 0 else 'FAIL' }}
+      JOB={{ migration_job_id }}
+    create: true
+    mode: "0644"
+  tags: [migration, verify]

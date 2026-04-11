@@ -1,0 +1,41 @@
+---
+# ============================================================
+# 체크섬 생성 - 이관 전/후 호출
+# _checksum_phase: "before" | "after"
+# ============================================================
+
+- name: "[checksum] 체크섬 파일 경로 설정"
+  ansible.builtin.set_fact:
+    _checksum_file: "{{ migration_log_dir }}/checksum_{{ _checksum_phase }}_{{ migration_job_id }}.txt"
+  tags: [migration, checksum]
+
+- name: "[checksum] 전체 파일 체크섬 생성 ({{ _checksum_phase }})"
+  ansible.builtin.shell: >
+    find "{{ migration_src_path }}" -type f -print0
+    | xargs -0 {{ migration_checksum_algo }}sum
+    | sort
+    > "{{ _checksum_file }}"
+    && echo "완료: $(wc -l < {{ _checksum_file }}) 파일 체크섬 생성"
+  register: _checksum_result
+  changed_when: true
+  when: migration_verify_sample_rate | int == 100
+  tags: [migration, checksum]
+
+- name: "[checksum] 샘플링 체크섬 생성 ({{ migration_verify_sample_rate }}%, {{ _checksum_phase }})"
+  ansible.builtin.shell: |
+    SAMPLE_RATE="{{ migration_verify_sample_rate }}"
+    find "{{ migration_src_path }}" -type f -print \
+      | awk "BEGIN{srand()} {if(rand()*100 < ${SAMPLE_RATE}) print}" \
+      | xargs {{ migration_checksum_algo }}sum \
+      | sort \
+      > "{{ _checksum_file }}"
+    echo "완료: $(wc -l < {{ _checksum_file }}) 파일 샘플 체크섬 생성 (${SAMPLE_RATE}%)"
+  register: _checksum_sample_result
+  changed_when: true
+  when: migration_verify_sample_rate | int < 100
+  tags: [migration, checksum]
+
+- name: "[checksum] 체크섬 파일 경로 저장"
+  ansible.builtin.set_fact:
+    "migration_checksum_{{ _checksum_phase }}": "{{ _checksum_file }}"
+  tags: [migration, checksum]

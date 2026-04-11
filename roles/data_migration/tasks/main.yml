@@ -1,0 +1,140 @@
+---
+# ============================================================
+# 대용량 데이터 이관 - 메인 태스크 진입점
+# ============================================================
+
+- name: "[MIGRATION] 필수 변수 검증"
+  ansible.builtin.assert:
+    that:
+      - migration_dst_host | length > 0
+      - migration_src_path | length > 0
+      - migration_dst_path | length > 0
+      - migration_mode in ['rsync', 'tar_stream', 'parallel', 'db_dump']
+    fail_msg: >
+      필수 변수가 설정되지 않았습니다.
+      migration_dst_host, migration_src_path, migration_dst_path 를 확인하세요.
+  tags: [migration, validate]
+
+- name: "[MIGRATION] 로그 디렉터리 생성"
+  ansible.builtin.file:
+    path: "{{ migration_log_dir }}"
+    state: directory
+    mode: "0755"
+  tags: [migration, setup]
+
+- name: "[MIGRATION] 작업 시작 로그 기록"
+  ansible.builtin.lineinfile:
+    path: "{{ migration_log_dir }}/{{ migration_log_file }}"
+    line: >
+      [{{ ansible_date_time.iso8601 }}] JOB={{ migration_job_id }}
+      MODE={{ migration_mode }} SRC={{ migration_src_path }}
+      DST={{ migration_dst_host }}:{{ migration_dst_path }}
+    create: true
+    mode: "0644"
+  tags: [migration, setup]
+
+- name: "[MIGRATION] 소스 경로 존재 확인"
+  ansible.builtin.stat:
+    path: "{{ migration_src_path }}"
+  register: _src_stat
+  tags: [migration, validate]
+
+- name: "[MIGRATION] 소스 경로 없으면 중단"
+  ansible.builtin.fail:
+    msg: "소스 경로가 존재하지 않습니다: {{ migration_src_path }}"
+  when: not _src_stat.stat.exists
+  tags: [migration, validate]
+
+- name: "[MIGRATION] 소스 파일/폴더 크기 조회"
+  ansible.builtin.shell: >
+    du -sh "{{ migration_src_path }}" 2>/dev/null | awk '{print $1}'
+  register: _src_size
+  changed_when: false
+  tags: [migration, validate]
+
+- name: "[MIGRATION] 소스 파일 수 조회"
+  ansible.builtin.shell: >
+    find "{{ migration_src_path }}" -type f | wc -l
+  register: _src_file_count
+  changed_when: false
+  tags: [migration, validate]
+
+- name: "[MIGRATION] 이관 대상 정보 출력"
+  ansible.builtin.debug:
+    msg:
+      - "JOB ID     : {{ migration_job_id }}"
+      - "모드       : {{ migration_mode }}"
+      - "소스       : {{ migration_src_path }}"
+      - "대상       : {{ migration_dst_host }}:{{ migration_dst_path }}"
+      - "총 크기    : {{ _src_size.stdout }}"
+      - "파일 수    : {{ _src_file_count.stdout | trim }} 개"
+      - "검증 여부  : {{ migration_verify }}"
+  tags: [migration, validate]
+
+# ----- 이관 전 체크섬 생성 -----
+- name: "[MIGRATION] 이관 전 체크섬 생성"
+  ansible.builtin.import_tasks: checksum.yml
+  vars:
+    _checksum_phase: "before"
+  when: migration_verify | bool
+  tags: [migration, checksum]
+
+# ----- 이관 모드별 분기 -----
+- name: "[MIGRATION] rsync 이관 실행"
+  ansible.builtin.import_tasks: transfer_rsync.yml
+  when: migration_mode == 'rsync'
+  tags: [migration, transfer]
+
+- name: "[MIGRATION] tar 스트리밍 이관 실행"
+  ansible.builtin.import_tasks: transfer_tar_stream.yml
+  when: migration_mode == 'tar_stream'
+  tags: [migration, transfer]
+
+- name: "[MIGRATION] 병렬 이관 실행"
+  ansible.builtin.import_tasks: transfer_parallel.yml
+  when: migration_mode == 'parallel'
+  tags: [migration, transfer]
+
+- name: "[MIGRATION] DB 덤프 이관 실행"
+  ansible.builtin.import_tasks: transfer_db_dump.yml
+  when: migration_mode == 'db_dump'
+  tags: [migration, transfer]
+
+# ----- 이관 후 검증 -----
+- name: "[MIGRATION] 이관 후 체크섬 검증"
+  ansible.builtin.import_tasks: verify.yml
+  when: migration_verify | bool
+  tags: [migration, verify]
+
+# ----- 소스 정리 (옵션) -----
+- name: "[MIGRATION] 소스 원본 삭제 (post_cleanup)"
+  ansible.builtin.file:
+    path: "{{ migration_src_path }}"
+    state: absent
+  when: migration_post_cleanup_src | bool
+  tags: [migration, cleanup]
+
+# ----- Slack 알림 -----
+- name: "[MIGRATION] Slack 완료 알림"
+  ansible.builtin.uri:
+    url: "{{ slack_webhook_url }}"
+    method: POST
+    body_format: json
+    body:
+      text: >
+        :white_check_mark: *이관 완료*
+        Job: `{{ migration_job_id }}`
+        `{{ migration_src_path }}` → `{{ migration_dst_host }}:{{ migration_dst_path }}`
+        파일 수: {{ _src_file_count.stdout | trim }}개 / 크기: {{ _src_size.stdout }}
+  when:
+    - migration_notify_slack | bool
+    - slack_webhook_url | length > 0
+  tags: [migration, notify]
+
+- name: "[MIGRATION] 작업 완료 로그 기록"
+  ansible.builtin.lineinfile:
+    path: "{{ migration_log_dir }}/{{ migration_log_file }}"
+    line: "[{{ ansible_date_time.iso8601 }}] 완료 - JOB={{ migration_job_id }}"
+    create: true
+    mode: "0644"
+  tags: [migration, setup]

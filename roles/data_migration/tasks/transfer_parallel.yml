@@ -1,0 +1,99 @@
+---
+# ============================================================
+# GNU parallel 병렬 이관
+# 권장 시나리오:
+#   - 중간 크기 파일 수천~수만 개
+#   - 멀티코어 서버에서 CPU/네트워크 최대 활용
+#   - 파일별 독립 전송으로 일부 실패 시 재전송 용이
+# ============================================================
+
+- name: "[parallel] GNU parallel 설치"
+  ansible.builtin.package:
+    name: parallel
+    state: present
+  tags: [migration, parallel]
+
+- name: "[parallel] 대상 서버에 목적지 디렉터리 생성"
+  ansible.builtin.shell: >
+    ssh -o StrictHostKeyChecking=no
+    {{ migration_dst_user }}@{{ migration_dst_host }}
+    "mkdir -p '{{ migration_dst_path }}'"
+  changed_when: true
+  tags: [migration, parallel]
+
+- name: "[parallel] 전송 대상 파일 목록 생성"
+  ansible.builtin.shell: >
+    find "{{ migration_src_path }}" -type f -print
+    > "{{ migration_log_dir }}/filelist_{{ migration_job_id }}.txt"
+    && wc -l < "{{ migration_log_dir }}/filelist_{{ migration_job_id }}.txt"
+  register: _file_count
+  changed_when: true
+  tags: [migration, parallel]
+
+- name: "[parallel] 파일 목록 확인"
+  ansible.builtin.debug:
+    msg: "병렬 전송 대상 파일 수: {{ _file_count.stdout | trim }} 개 ({{ parallel_jobs }}스레드)"
+  tags: [migration, parallel]
+
+- name: "[parallel] 병렬 scp 전송 실행"
+  ansible.builtin.shell: |
+    SRC_BASE="{{ migration_src_path }}"
+    DST_BASE="{{ migration_dst_path }}"
+    DST_HOST="{{ migration_dst_host }}"
+    DST_USER="{{ migration_dst_user }}"
+    LOG="{{ migration_log_dir }}/{{ migration_log_file }}"
+    FAILED_LIST="{{ migration_log_dir }}/failed_{{ migration_job_id }}.txt"
+    > "${FAILED_LIST}"
+
+    transfer_file() {
+      local src_file="$1"
+      local rel_path="${src_file#${SRC_BASE}/}"
+      local dst_dir="${DST_BASE}/$(dirname "${rel_path}")"
+
+      ssh -o StrictHostKeyChecking=no \
+          "${DST_USER}@${DST_HOST}" \
+          "mkdir -p '${dst_dir}'" 2>/dev/null
+
+      scp -o StrictHostKeyChecking=no \
+          "${src_file}" \
+          "${DST_USER}@${DST_HOST}:${dst_dir}/" 2>&1
+      if [ $? -ne 0 ]; then
+        echo "${src_file}" >> "${FAILED_LIST}"
+        echo "[FAIL] ${src_file}" | tee -a "${LOG}"
+      else
+        echo "[OK]   ${src_file}" >> "${LOG}"
+      fi
+    }
+    export -f transfer_file
+    export SRC_BASE DST_BASE DST_HOST DST_USER
+
+    cat "{{ migration_log_dir }}/filelist_{{ migration_job_id }}.txt" \
+      | parallel --jobs {{ parallel_jobs }} \
+                 --bar \
+                 --joblog "{{ migration_log_dir }}/parallel_joblog_{{ migration_job_id }}.txt" \
+                 transfer_file {}
+
+    FAILED_COUNT=$(wc -l < "${FAILED_LIST}")
+    echo "실패 파일 수: ${FAILED_COUNT}" | tee -a "${LOG}"
+    exit ${FAILED_COUNT}
+  register: _parallel_result
+  changed_when: _parallel_result.rc >= 0
+  failed_when: _parallel_result.rc > 0
+  async: "{{ migration_timeout }}"
+  poll: 60
+  tags: [migration, parallel]
+
+- name: "[parallel] 실패 파일 재시도"
+  ansible.builtin.shell: |
+    FAILED_LIST="{{ migration_log_dir }}/failed_{{ migration_job_id }}.txt"
+    if [ -s "${FAILED_LIST}" ]; then
+      echo "재시도 중인 실패 파일:"
+      cat "${FAILED_LIST}"
+      cat "${FAILED_LIST}" | parallel --jobs {{ parallel_jobs }} \
+        scp -o StrictHostKeyChecking=no {} \
+        {{ migration_dst_user }}@{{ migration_dst_host }}:{{ migration_dst_path }}/
+    fi
+  register: _retry_result
+  when: _parallel_result.rc | default(0) > 0
+  changed_when: true
+  tags: [migration, parallel]

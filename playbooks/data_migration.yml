@@ -1,0 +1,100 @@
+---
+# ============================================================
+# 대용량 데이터 이관 플레이북
+#
+# 사용 예시:
+#
+# [1] rsync 기본 이관:
+#   ansible-playbook playbooks/data_migration.yml \
+#     -i inventories/prod/hosts.ini \
+#     -e "migration_dst_host=10.0.1.20" \
+#     -e "migration_src_path=/data/uploads" \
+#     -e "migration_dst_path=/mnt/new-storage/uploads"
+#
+# [2] 파일 수 많은 폴더 → tar 스트리밍:
+#   ansible-playbook playbooks/data_migration.yml \
+#     -i inventories/prod/hosts.ini \
+#     -e "migration_mode=tar_stream" \
+#     -e "migration_dst_host=10.0.1.20" \
+#     -e "migration_src_path=/var/www/assets" \
+#     -e "migration_dst_path=/var/www/assets" \
+#     -e "tar_compress_algo=zstd"
+#
+# [3] 병렬 전송 (빠른 네트워크 + 파일 다수):
+#   ansible-playbook playbooks/data_migration.yml \
+#     -i inventories/prod/hosts.ini \
+#     -e "migration_mode=parallel" \
+#     -e "parallel_jobs=8" \
+#     -e "migration_dst_host=10.0.1.20" \
+#     -e "migration_src_path=/data/media" \
+#     -e "migration_dst_path=/data/media"
+#
+# [4] DB 덤프 이관:
+#   ansible-playbook playbooks/data_migration.yml \
+#     -i inventories/prod/hosts.ini \
+#     -e "migration_mode=db_dump" \
+#     -e "db_type=mysql" \
+#     -e "db_name=myapp_db" \
+#     -e "db_user=root" \
+#     -e "@secrets/db_password.yml" \
+#     -e "migration_dst_host=10.0.1.20" \
+#     -e "migration_src_path=/tmp" \
+#     -e "migration_dst_path=/tmp"
+#
+# [5] 대역폭 제한 + Slack 알림:
+#   ansible-playbook playbooks/data_migration.yml \
+#     -i inventories/prod/hosts.ini \
+#     -e "migration_dst_host=10.0.1.20" \
+#     -e "migration_src_path=/data/logs" \
+#     -e "migration_dst_path=/data/logs" \
+#     -e "rsync_bwlimit=102400" \
+#     -e "migration_notify_slack=true" \
+#     -e "slack_webhook_url=https://hooks.slack.com/..."
+#
+# [6] 검증만 재실행:
+#   ansible-playbook playbooks/data_migration.yml \
+#     -i inventories/prod/hosts.ini \
+#     --tags verify \
+#     -e "migration_job_id=1712800000" \
+#     -e "migration_dst_host=10.0.1.20" \
+#     -e "migration_src_path=/data/uploads" \
+#     -e "migration_dst_path=/mnt/new-storage/uploads"
+# ============================================================
+
+- name: "대용량 데이터 이관"
+  hosts: "{{ migration_hosts | default('all') }}"
+  gather_facts: true
+  become: "{{ migration_become | default(false) }}"
+
+  pre_tasks:
+    - name: "이관 작업 사전 알림"
+      ansible.builtin.debug:
+        msg:
+          - "======================================"
+          - " 대용량 데이터 이관 시작"
+          - " 호스트  : {{ inventory_hostname }}"
+          - " 모드    : {{ migration_mode | default('rsync') }}"
+          - " 소스    : {{ migration_src_path | default('미설정') }}"
+          - " 대상    : {{ migration_dst_host | default('미설정') }}:{{ migration_dst_path | default('미설정') }}"
+          - "======================================"
+
+    - name: "필수 패키지 확인"
+      ansible.builtin.package:
+        name:
+          - rsync
+          - pv          # 전송 진행률 표시
+        state: present
+      become: true
+
+  roles:
+    - role: data_migration
+
+  post_tasks:
+    - name: "이관 완료 요약"
+      ansible.builtin.debug:
+        msg:
+          - "======================================"
+          - " 이관 완료"
+          - " Job ID  : {{ migration_job_id }}"
+          - " 로그    : {{ migration_log_dir }}/{{ migration_log_file }}"
+          - "======================================"

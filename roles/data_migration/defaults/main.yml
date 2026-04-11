@@ -1,0 +1,56 @@
+---
+# ============================================================
+# 대용량 데이터 이관 Role - 기본 변수
+# ============================================================
+
+# ----- 소스 / 대상 경로 -----
+migration_src_host: "{{ inventory_hostname }}"   # 소스 서버 (기본: 현재 호스트)
+migration_dst_host: ""                            # 대상 서버 IP 또는 호스트명 (필수)
+migration_src_path: ""                            # 소스 디렉터리/파일 경로 (필수)
+migration_dst_path: ""                            # 대상 디렉터리/파일 경로 (필수)
+migration_dst_user: "{{ ansible_user }}"          # 대상 서버 접속 계정
+
+# ----- 이관 방식 -----
+# rsync      : 범용 증분 동기화 (기본)
+# tar_stream : tar + ssh 파이프 스트리밍 (파일 수 매우 많을 때)
+# parallel   : GNU parallel 활용 병렬 전송 (소~중간 파일 다수)
+# db_dump    : DB 덤프 파일 이관 특화 모드
+migration_mode: "rsync"
+
+# ----- rsync 옵션 -----
+rsync_bwlimit: 0                    # 대역폭 제한 KB/s (0=무제한)
+rsync_checksum: false               # --checksum 플래그 (느리지만 정확)
+rsync_delete: false                 # 대상에서 소스에 없는 파일 삭제
+rsync_compress: true                # -z 압축 전송
+rsync_partial: true                 # --partial 중단 시 재시작 가능
+rsync_exclude_patterns: []          # 제외 패턴 목록 (e.g. ["*.tmp", ".git/"])
+rsync_extra_opts: ""                # 추가 rsync 옵션 문자열
+
+# ----- 병렬 전송 옵션 (parallel 모드) -----
+parallel_jobs: 4                    # 동시 전송 스레드 수
+parallel_batch_size: 1000           # 한 배치당 파일 수 (파일 수 많을 때)
+
+# ----- tar 스트리밍 옵션 -----
+tar_compress_algo: "pigz"           # 압축 프로그램: pigz(병렬gzip), lz4, zstd, none
+tar_compress_level: 3               # 압축 레벨 (1=빠름, 9=높은 압축)
+
+# ----- 재시도 / 타임아웃 -----
+migration_retries: 3                # 실패 시 재시도 횟수
+migration_retry_delay: 30           # 재시도 대기 시간(초)
+migration_timeout: 86400            # 전체 작업 타임아웃(초) 기본 24h
+
+# ----- 검증 옵션 -----
+migration_verify: true              # 이관 후 체크섬 검증 실행
+migration_verify_sample_rate: 100   # 검증 대상 비율 % (100=전체, 10=10% 샘플)
+migration_checksum_algo: "sha256"   # 체크섬 알고리즘: md5, sha1, sha256
+
+# ----- 로깅 -----
+migration_log_dir: "/var/log/ansible/migration"
+migration_log_file: "migration_{{ migration_job_id }}.log"
+migration_job_id: "{{ ansible_date_time.epoch }}"  # 작업 고유 ID
+
+# ----- 사전/사후 훅 -----
+migration_pre_freeze: false         # 이관 전 소스 서비스 freeze (read-only mount 등)
+migration_post_cleanup_src: false   # 이관 완료 후 소스 원본 삭제
+migration_notify_slack: false       # Slack 완료 알림 (slack_webhook_url 필요)
+slack_webhook_url: ""

@@ -1,0 +1,8 @@
+---
+- name: "migration log error"
+  ansible.builtin.lineinfile:
+    path: "{{ migration_log_dir }}/{{ migration_log_file }}"
+    line: "[{{ ansible_date_time.iso8601 }}] ERROR - JOB={{ migration_job_id }} 이관 실패"
+    create: true
+    mode: "0644"
+  listen: "migration failed"

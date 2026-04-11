@@ -1,0 +1,130 @@
+---
+# ============================================================
+# 시나리오별 이관 예시 모음
+# - 이 파일은 직접 실행하는 플레이북이 아닌 참고용 예시입니다
+# - 실제 실행은 data_migration.yml 을 사용하세요
+# ============================================================
+
+# -------------------------------------------------------
+# 시나리오 1: 대용량 단일 디렉터리 rsync 이관
+# 상황: /data/uploads (500GB) → 신규 스토리지 서버
+# 특징: 증분 전송, 중단 후 재시작, 대역폭 제한
+# -------------------------------------------------------
+# ansible-playbook playbooks/data_migration.yml \
+#   -i inventories/prod/hosts.ini \
+#   -l web01 \
+#   -e migration_mode=rsync \
+#   -e migration_dst_host=storage-new.internal \
+#   -e migration_src_path=/data/uploads \
+#   -e migration_dst_path=/data/uploads \
+#   -e rsync_bwlimit=204800 \      # 200MB/s 제한
+#   -e rsync_checksum=false \      # mtime 기반 (빠름)
+#   -e rsync_partial=true \        # 중단 시 이어받기
+#   -e rsync_compress=true \       # 전송 중 압축
+#   -e migration_verify=true \
+#   -e migration_verify_sample_rate=10  # 10% 샘플 검증
+
+# -------------------------------------------------------
+# 시나리오 2: 수백만 개 소형 파일 tar 스트리밍 이관
+# 상황: /var/www/cache (2백만 개 이미지 썸네일)
+# 특징: rsync open() 병목 회피, pigz 병렬 압축
+# -------------------------------------------------------
+# ansible-playbook playbooks/data_migration.yml \
+#   -i inventories/prod/hosts.ini \
+#   -l web01 \
+#   -e migration_mode=tar_stream \
+#   -e migration_dst_host=storage-new.internal \
+#   -e migration_src_path=/var/www/cache \
+#   -e migration_dst_path=/var/www/cache \
+#   -e tar_compress_algo=pigz \    # 병렬 gzip
+#   -e tar_compress_level=1 \      # 최대한 빠르게
+#   -e migration_verify=false      # 파일 수 많아 검증 생략
+
+# -------------------------------------------------------
+# 시나리오 3: 미디어 파일 병렬 전송
+# 상황: /data/videos (10만 개 MP4, 평균 500MB)
+# 특징: 8스레드 동시 전송으로 시간 단축
+# -------------------------------------------------------
+# ansible-playbook playbooks/data_migration.yml \
+#   -i inventories/prod/hosts.ini \
+#   -l media01 \
+#   -e migration_mode=parallel \
+#   -e parallel_jobs=8 \
+#   -e migration_dst_host=nas.internal \
+#   -e migration_src_path=/data/videos \
+#   -e migration_dst_path=/mnt/nas/videos \
+#   -e migration_verify=true \
+#   -e migration_verify_sample_rate=5  # 5% 샘플 검증
+
+# -------------------------------------------------------
+# 시나리오 4: MySQL DB 이관 (원클릭 덤프+전송+복원)
+# 상황: prod DB 서버 교체, 다운타임 최소화
+# -------------------------------------------------------
+# ansible-playbook playbooks/data_migration.yml \
+#   -i inventories/prod/hosts.ini \
+#   -l db01 \
+#   -e migration_mode=db_dump \
+#   -e db_type=mysql \
+#   -e db_name=myapp_production \
+#   -e db_user=root \
+#   -e db_password="{{ vault_db_password }}" \
+#   -e migration_dst_host=db02.internal \
+#   -e migration_src_path=/tmp \
+#   -e migration_dst_path=/tmp \
+#   -e db_auto_restore=true \
+#   -e db_dst_host=localhost \
+#   -e db_dst_user=root \
+#   -e db_dst_password="{{ vault_db_dst_password }}" \
+#   --vault-password-file ~/.vault_pass
+
+# -------------------------------------------------------
+# 시나리오 5: 멀티 호스트 동시 이관
+# 상황: 10개 앱 서버의 /data/sessions 동시 이관
+# -------------------------------------------------------
+# ansible-playbook playbooks/data_migration.yml \
+#   -i inventories/prod/hosts.ini \
+#   -l app_servers \
+#   -e migration_mode=rsync \
+#   -e migration_dst_host=shared-storage.internal \
+#   -e "migration_src_path=/data/sessions" \
+#   -e "migration_dst_path=/data/sessions/{{ inventory_hostname }}" \
+#   -e migration_verify=true \
+#   -f 10   # 10개 호스트 동시 실행 (forks)
+
+# -------------------------------------------------------
+# 시나리오 6: 야간 배치 이관 (cron 연동)
+# 상황: 매일 새벽 2시 증분 이관
+# -------------------------------------------------------
+# # crontab: 0 2 * * * /usr/bin/ansible-playbook ...
+# ansible-playbook playbooks/data_migration.yml \
+#   -i inventories/prod/hosts.ini \
+#   -l storage01 \
+#   -e migration_mode=rsync \
+#   -e migration_dst_host=backup.internal \
+#   -e migration_src_path=/data \
+#   -e migration_dst_path=/backup/$(date +%Y%m%d) \
+#   -e rsync_partial=true \
+#   -e migration_verify=false \
+#   -e migration_notify_slack=true \
+#   -e slack_webhook_url="{{ vault_slack_url }}"
+
+# -------------------------------------------------------
+# 시나리오 7: 이관 검증만 단독 실행 (이관 완료 후)
+# -------------------------------------------------------
+# ansible-playbook playbooks/data_migration_verify.yml \
+#   -i inventories/prod/hosts.ini \
+#   -l web01 \
+#   -e migration_src_path=/data/uploads \
+#   -e migration_dst_host=storage-new.internal \
+#   -e migration_dst_path=/data/uploads \
+#   -e migration_verify_sample_rate=100  # 전체 검증
+
+# -------------------------------------------------------
+# 유용한 태그 목록
+# -------------------------------------------------------
+# --tags validate   : 사전 검증만 (소스 존재, 변수 체크)
+# --tags transfer   : 전송만 실행
+# --tags checksum   : 체크섬 생성만
+# --tags verify     : 검증만 실행
+# --tags cleanup    : 소스 정리만
+# --tags notify     : 알림만 재전송
