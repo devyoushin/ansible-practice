@@ -1,0 +1,31 @@
+---
+- name: Redis 설정 파일 배포
+  template:
+    src: redis.conf.j2
+    dest: /etc/redis/redis.conf
+    owner: redis
+    group: redis
+    mode: "0640"
+    validate: "redis-server --daemonize no %s &"
+  notify: restart redis
+
+- name: Redis 메모리 오버커밋 허용 (권장 설정)
+  sysctl:
+    name: vm.overcommit_memory
+    value: "1"
+    state: present
+    reload: true
+
+- name: THP(Transparent Huge Pages) 비활성화 (Redis 성능 최적화)
+  shell: echo never > /sys/kernel/mm/transparent_hugepage/enabled
+  changed_when: false
+
+- name: Redis 접속 확인
+  command: redis-cli -p {{ redis_port }} ping
+  environment:
+    REDISCLI_AUTH: "{{ redis_password }}"
+  register: redis_ping
+  retries: 5
+  delay: 3
+  until: redis_ping.stdout == "PONG"
+  changed_when: false

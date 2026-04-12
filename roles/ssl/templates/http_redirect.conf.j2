@@ -1,0 +1,14 @@
+# http_redirect.conf — HTTP를 HTTPS로 영구 리다이렉트
+server {
+    listen 80;
+    server_name {{ ssl_domains | join(' ') }};
+
+    # Let's Encrypt ACME 챌린지 경로는 예외 처리
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}

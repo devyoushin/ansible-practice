@@ -1,0 +1,60 @@
+---
+# Let's Encrypt: certbot으로 무료 TLS 인증서 발급 및 자동 갱신
+
+- name: certbot 설치 (EPEL 필요)
+  package:
+    name:
+      - epel-release
+      - certbot
+      - python3-certbot-nginx
+    state: present
+
+- name: 인증서 발급 (standalone 또는 nginx 플러그인)
+  command: >
+    certbot certonly
+    --nginx
+    --non-interactive
+    --agree-tos
+    --email {{ ssl_email }}
+    {% for domain in ssl_domains %}
+    -d {{ domain }}
+    {% endfor %}
+    {% if ssl_staging %}--staging{% endif %}
+  args:
+    creates: "/etc/letsencrypt/live/{{ ssl_domains[0] }}/fullchain.pem"
+  notify: reload nginx
+  register: certbot_result
+
+- name: 인증서 발급 결과 출력
+  debug:
+    msg: "인증서 발급 완료: /etc/letsencrypt/live/{{ ssl_domains[0] }}/"
+  when: certbot_result.changed
+
+- name: 인증서 경로 변수 오버라이드 (Let's Encrypt 경로로)
+  set_fact:
+    ssl_cert_path: "/etc/letsencrypt/live/{{ ssl_domains[0] }}/fullchain.pem"
+    ssl_key_path: "/etc/letsencrypt/live/{{ ssl_domains[0] }}/privkey.pem"
+
+- name: 자동 갱신 cron 등록 (갱신은 만료 30일 전 자동 시도)
+  cron:
+    name: "certbot auto renew"
+    minute: "0"
+    hour: "{{ ssl_renew_cron_hour }}"
+    day: "*"
+    month: "*"
+    weekday: "*"
+    job: >
+      certbot renew --quiet
+      {% if ssl_renew_pre_hook %}--pre-hook "{{ ssl_renew_pre_hook }}"{% endif %}
+      --post-hook "{{ ssl_renew_post_hook }}"
+    user: root
+    state: "{{ 'present' if ssl_auto_renew else 'absent' }}"
+
+- name: 인증서 만료일 확인
+  command: "openssl x509 -enddate -noout -in {{ ssl_cert_path }}"
+  register: cert_expiry
+  changed_when: false
+
+- name: 인증서 만료일 출력
+  debug:
+    msg: "인증서 만료일: {{ cert_expiry.stdout }}"

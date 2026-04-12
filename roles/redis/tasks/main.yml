@@ -1,0 +1,13 @@
+---
+- name: Redis 설치
+  import_tasks: install.yml
+  tags: [redis, install]
+
+- name: Redis 설정
+  import_tasks: configure.yml
+  tags: [redis, configure]
+
+- name: Redis Sentinel 설정 (HA)
+  import_tasks: sentinel.yml
+  when: redis_sentinel_enabled | bool
+  tags: [redis, sentinel]

@@ -1,0 +1,36 @@
+---
+# SSL 인증서 방식: letsencrypt | self_signed | manual
+ssl_mode: "letsencrypt"
+
+# Let's Encrypt 설정
+ssl_email: "admin@example.com"         # 만료 알림 수신 이메일
+ssl_domains: []                        # 인증서 발급 도메인 목록 (SAN 지원)
+                                       # 예: ["example.com", "www.example.com"]
+ssl_staging: false                     # true: 테스트 (발급 횟수 제한 없음), false: 실제 인증서
+ssl_auto_renew: true                   # 자동 갱신 cron 등록 여부
+ssl_renew_cron_hour: "3"               # 자동 갱신 실행 시간 (새벽 3시)
+ssl_renew_pre_hook: ""                 # 갱신 전 실행 명령 (Nginx 중지 등)
+ssl_renew_post_hook: "systemctl reload nginx"  # 갱신 후 Nginx 리로드
+
+# 자체 서명 인증서 설정 (ssl_mode: self_signed)
+ssl_self_signed_days: 3650             # 유효기간 (10년)
+ssl_self_signed_key_size: 4096
+ssl_self_signed_country: "KR"
+ssl_self_signed_org: "Example Corp"
+ssl_self_signed_cn: "{{ ansible_fqdn }}"
+
+# 인증서 저장 경로
+ssl_cert_dir: "/etc/ssl/certs"
+ssl_key_dir: "/etc/ssl/private"
+ssl_cert_path: "{{ ssl_cert_dir }}/{{ ssl_domains[0] | default(ansible_fqdn) }}.crt"
+ssl_key_path: "{{ ssl_key_dir }}/{{ ssl_domains[0] | default(ansible_fqdn) }}.key"
+
+# Nginx SSL 설정
+ssl_nginx_enabled: true
+ssl_nginx_hsts: true                   # HSTS 헤더 활성화
+ssl_nginx_hsts_max_age: 31536000       # 1년
+ssl_nginx_ocsp_stapling: true          # OCSP Stapling
+ssl_nginx_session_cache: "shared:SSL:10m"
+ssl_nginx_session_timeout: "1d"
+ssl_nginx_protocols: "TLSv1.2 TLSv1.3"
+ssl_nginx_ciphers: "ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384"

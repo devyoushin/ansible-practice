@@ -1,0 +1,15 @@
+---
+- name: restart redis
+  service:
+    name: redis
+    state: restarted
+
+- name: restart redis-sentinel
+  service:
+    name: redis-sentinel
+    state: restarted
+
+- name: reload redis
+  service:
+    name: redis
+    state: reloaded

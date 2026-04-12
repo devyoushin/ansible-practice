@@ -1,0 +1,55 @@
+---
+# Redis Sentinel: Redis Master 장애 시 자동 Failover를 담당
+# Master 1대 + Replica N대 구성에서 Sentinel 과반수 동의로 새 Master 선출
+
+- name: Sentinel 설정 파일 배포
+  template:
+    src: sentinel.conf.j2
+    dest: /etc/redis/sentinel.conf
+    owner: redis
+    group: redis
+    mode: "0640"
+  notify: restart redis-sentinel
+
+- name: redis-sentinel systemd 서비스 파일 생성
+  copy:
+    dest: /etc/systemd/system/redis-sentinel.service
+    content: |
+      [Unit]
+      Description=Redis Sentinel
+      After=network.target redis.service
+
+      [Service]
+      Type=notify
+      ExecStart=/usr/bin/redis-sentinel /etc/redis/sentinel.conf --supervised systemd
+      ExecStop=/usr/bin/redis-cli -p {{ redis_sentinel_port }} SHUTDOWN
+      User=redis
+      Group=redis
+      RuntimeDirectory=redis
+      RuntimeDirectoryMode=0755
+      Restart=always
+
+      [Install]
+      WantedBy=multi-user.target
+  notify: restart redis-sentinel
+
+- name: systemd 데몬 리로드
+  systemd:
+    daemon_reload: true
+
+- name: Redis Sentinel 서비스 활성화 및 시작
+  service:
+    name: redis-sentinel
+    state: started
+    enabled: true
+
+- name: Sentinel Master 확인
+  command: >
+    redis-cli -p {{ redis_sentinel_port }}
+    sentinel master {{ redis_sentinel_master_name }}
+  register: sentinel_master_info
+  changed_when: false
+
+- name: Sentinel Master 정보 출력
+  debug:
+    msg: "Sentinel Master: {{ sentinel_master_info.stdout_lines[:4] }}"

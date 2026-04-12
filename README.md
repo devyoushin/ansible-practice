@@ -25,20 +25,27 @@ ansible-practice/
 │
 ├── playbooks/
 │   ├── site.yml                   # 전체 오케스트레이션 (메인)
+│   ├── rolling_update.yml         # 무중단 롤링 업데이트 (25% serial)
+│   ├── blue_green_deploy.yml      # Blue-Green 배포 (즉시 롤백 가능)
+│   ├── maintenance.yml            # 운영 유지보수 (디스크/로그/패키지)
+│   ├── incident_response.yml      # 장애 자동 대응 (디스크/서비스/메모리)
+│   ├── data_migration.yml         # 대용량 데이터 마이그레이션
 │   ├── database.yml               # DB 단독 배포
 │   ├── app.yml                    # 앱 단독 배포
 │   ├── monitoring.yml             # 모니터링 배포
-│   ├── rolling_update.yml         # 무중단 롤링 업데이트
-│   └── maintenance.yml            # 운영 유지보수 (디스크/로그/패키지)
+│   └── webserver.yml              # 웹서버 단독 배포
 │
 ├── roles/
 │   ├── common/                    # 공통 초기화 (패키지, NTP, sysctl)
 │   ├── security/                  # 보안 강화 (SSH, firewalld, auditd)
 │   ├── webserver/                 # Nginx 웹서버
+│   ├── ssl/                       # TLS 인증서 (Let's Encrypt / 자체 서명)
 │   ├── database/                  # MariaDB (replication, backup)
 │   ├── app/                       # Spring Boot 앱 (systemd, health check)
 │   ├── haproxy/                   # 로드밸런서
-│   └── monitoring/                # Node Exporter + Prometheus
+│   ├── monitoring/                # Node Exporter + Prometheus
+│   ├── redis/                     # Redis 7 + Sentinel (HA)
+│   └── data_migration/            # 대용량 데이터 이전
 │
 ├── molecule/
 │   └── default/                   # 롤 단위 테스트 (Docker)
@@ -117,6 +124,77 @@ ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml --limit prod-w
 # 앱 v2.1.0 으로 롤링 업데이트 (25%씩 순차)
 ansible-playbook -i inventories/prod/hosts.ini playbooks/rolling_update.yml \
   -e "app_version=2.1.0"
+```
+
+### Blue-Green 배포 (즉시 롤백 가능)
+
+```bash
+# 새 버전 Green 슬롯에 배포 후 LB 전환
+ansible-playbook -i inventories/prod/hosts.ini playbooks/blue_green_deploy.yml \
+  -e "app_version=2.1.0"
+
+# 문제 발생 시 1초 이내 이전 버전(Blue)으로 즉시 롤백
+ansible-playbook -i inventories/prod/hosts.ini playbooks/blue_green_deploy.yml \
+  -e "app_version=2.0.0 rollback=true"
+```
+
+> **Rolling vs Blue-Green 비교**
+> | | 롤링 업데이트 | Blue-Green |
+> |---|---|---|
+> | 배포 속도 | 순차 (느림) | 동시 (빠름) |
+> | 롤백 속도 | 느림 (재배포 필요) | 즉시 (LB 전환만) |
+> | 리소스 | 적음 | 2배 필요 |
+> | 배포 중 버전 혼재 | 있음 | 없음 |
+
+### SSL/TLS 인증서 관리
+
+```bash
+# Let's Encrypt 인증서 발급 (도메인 지정 필수)
+ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
+  --tags ssl \
+  -e "ssl_domains=['example.com','www.example.com'] ssl_email=admin@example.com"
+
+# 개발/스테이징용 자체 서명 인증서 생성
+ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml \
+  --tags ssl \
+  -e "ssl_mode=self_signed"
+```
+
+### Redis 캐시 서버 배포
+
+```bash
+# Redis 단독 배포 (기본 설정)
+ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
+  --tags redis
+
+# Redis Sentinel (HA) 포함 배포
+ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
+  --tags redis \
+  -e "redis_sentinel_enabled=true redis_sentinel_quorum=2"
+```
+
+### 장애 자동 대응
+
+```bash
+# 전체 서버 장애 진단 및 자동 복구 시도
+ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml
+
+# 시나리오별 단독 실행
+ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+  --tags disk_full     # 디스크 꽉 참 → 로그 정리, journald 정리
+
+ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+  --tags service_down  # 서비스 다운 → 자동 재시작
+
+ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+  --tags high_memory   # 메모리 부족 → PageCache 해제
+
+ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+  --tags oom_check     # OOM-Killer 이력 확인
+
+# 특정 서버만 대응
+ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+  --limit prod-app-01 --tags disk_full,service_down
 ```
 
 ### 운영 유지보수
@@ -214,6 +292,24 @@ molecule test         # 전체 (create → converge → verify → destroy)
 molecule converge     # 롤 적용만
 molecule verify       # 검증만
 molecule destroy      # 컨테이너 삭제
+```
+
+---
+
+### Redis Sentinel 동작 원리
+
+```
+[Sentinel 1] [Sentinel 2] [Sentinel 3]
+      ↓ 과반수(quorum=2) 동의 시 Failover 발동
+ [Master] ←복제← [Replica 1]
+                  [Replica 2]
+
+장애 감지 흐름:
+  1. Sentinel이 Master에 PING 전송
+  2. down-after-milliseconds 내 응답 없음 → SDOWN(주관적 다운) 판정
+  3. 과반수 Sentinel 동의 → ODOWN(객관적 다운) 판정
+  4. Replica 중 하나를 새 Master로 선출
+  5. 나머지 Replica들을 새 Master로 복제 방향 전환
 ```
 
 ---

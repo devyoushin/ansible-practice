@@ -1,0 +1,45 @@
+---
+# 자체 서명 인증서: 내부망, 개발/스테이징 환경에 사용
+
+- name: openssl 설치 확인
+  package:
+    name: openssl
+    state: present
+
+- name: 인증서 저장 디렉토리 생성
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop:
+    - "{{ ssl_cert_dir }}"
+    - "{{ ssl_key_dir }}"
+
+- name: 기존 인증서 만료 여부 확인
+  command: "openssl x509 -checkend 86400 -noout -in {{ ssl_cert_path }}"
+  register: cert_check
+  changed_when: false
+  failed_when: false
+  ignore_errors: true
+
+- name: 자체 서명 인증서 생성 (신규 or 만료 임박)
+  command: >
+    openssl req -x509 -nodes
+    -days {{ ssl_self_signed_days }}
+    -newkey rsa:{{ ssl_self_signed_key_size }}
+    -keyout {{ ssl_key_path }}
+    -out {{ ssl_cert_path }}
+    -subj "/C={{ ssl_self_signed_country }}/O={{ ssl_self_signed_org }}/CN={{ ssl_self_signed_cn }}"
+    -extensions v3_req
+    -addext "subjectAltName=DNS:{{ ssl_self_signed_cn }},IP:{{ ansible_default_ipv4.address }}"
+  when: cert_check.rc != 0 or not (ssl_cert_path is file)
+  notify: reload nginx
+
+- name: 비밀키 권한 제한
+  file:
+    path: "{{ ssl_key_path }}"
+    owner: root
+    group: root
+    mode: "0600"

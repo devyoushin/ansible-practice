@@ -1,0 +1,53 @@
+# ssl.conf — Ansible 관리 (수동 수정 금지)
+# 역할: roles/ssl | 호스트: {{ inventory_hostname }}
+
+server {
+    listen 443 ssl http2;
+    server_name {{ ssl_domains | join(' ') }};
+
+    # 인증서 설정
+    ssl_certificate     {{ ssl_cert_path }};
+    ssl_certificate_key {{ ssl_key_path }};
+    ssl_dhparam         /etc/nginx/dhparam.pem;
+
+    # 프로토콜 및 암호화 설정 (Mozilla Modern 기준)
+    ssl_protocols {{ ssl_nginx_protocols }};
+    ssl_ciphers   {{ ssl_nginx_ciphers }};
+    ssl_prefer_server_ciphers off;
+
+    # 세션 캐시 (성능 최적화)
+    ssl_session_cache   {{ ssl_nginx_session_cache }};
+    ssl_session_timeout {{ ssl_nginx_session_timeout }};
+    ssl_session_tickets off;
+
+{% if ssl_nginx_ocsp_stapling %}
+    # OCSP Stapling (인증서 유효성 확인 속도 개선)
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    resolver 8.8.8.8 8.8.4.4 valid=300s;
+    resolver_timeout 5s;
+{% endif %}
+
+    # 보안 헤더
+{% if ssl_nginx_hsts %}
+    add_header Strict-Transport-Security "max-age={{ ssl_nginx_hsts_max_age }}; includeSubDomains; preload" always;
+{% endif %}
+    add_header X-Frame-Options DENY always;
+    add_header X-Content-Type-Options nosniff always;
+    add_header X-XSS-Protection "1; mode=block" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+
+    root /var/www/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # 상태 확인 엔드포인트 (LB Health Check용)
+    location /health {
+        access_log off;
+        return 200 "healthy\n";
+        add_header Content-Type text/plain;
+    }
+}

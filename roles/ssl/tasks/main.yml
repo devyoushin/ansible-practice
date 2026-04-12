@@ -1,0 +1,23 @@
+---
+- name: 도메인 목록 검증
+  assert:
+    that:
+      - ssl_domains | length > 0
+    fail_msg: "ssl_domains 변수에 최소 1개 이상의 도메인을 지정해야 합니다."
+  when: ssl_mode == "letsencrypt"
+  tags: [ssl]
+
+- name: Let's Encrypt 인증서 발급/갱신
+  import_tasks: letsencrypt.yml
+  when: ssl_mode == "letsencrypt"
+  tags: [ssl, letsencrypt]
+
+- name: 자체 서명 인증서 생성
+  import_tasks: self_signed.yml
+  when: ssl_mode == "self_signed"
+  tags: [ssl, self_signed]
+
+- name: Nginx SSL 가상 호스트 설정
+  import_tasks: nginx_ssl.yml
+  when: ssl_nginx_enabled | bool
+  tags: [ssl, nginx]

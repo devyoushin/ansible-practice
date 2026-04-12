@@ -1,0 +1,278 @@
+---
+# incident_response.yml — 장애 자동 대응 플레이북
+#
+# 용도: 알람 발생 시 일반적인 장애 상황을 자동으로 진단/복구
+# 각 시나리오는 태그로 독립 실행 가능
+#
+# 사용 예시:
+#   # 전체 진단 실행
+#   ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml
+#
+#   # 디스크 꽉 참 대응만
+#   ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml --tags disk_full
+#
+#   # 서비스 다운 대응만
+#   ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml --tags service_down
+#
+#   # 특정 서버만 대응
+#   ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+#     --limit prod-app-01 --tags high_memory
+
+- name: "장애 대응 — 서비스 상태 진단 및 자동 복구"
+  hosts: all
+  become: true
+  gather_facts: true
+
+  vars:
+    # 임계값 설정
+    disk_critical_percent: 90     # 디스크 사용률 위험 기준 (%)
+    memory_critical_percent: 90   # 메모리 사용률 위험 기준 (%)
+    load_critical_multiplier: 3   # CPU 코어 수 × 배수 초과 시 위험
+
+    # 복구 대상 서비스 목록 (그룹별 자동 결정)
+    service_map:
+      webservers: nginx
+      appservers: myapp
+      databases: mariadb
+      loadbalancers: haproxy
+      monitoring: prometheus
+
+    # 로그 정리 설정
+    log_cleanup_paths:
+      - /var/log/nginx
+      - /var/log/app
+      - /tmp
+    log_cleanup_days: 3           # N일 이상 된 파일 삭제
+
+    # 알림 설정
+    slack_webhook_url: "{{ vault_slack_webhook_url | default('') }}"
+    incident_id: "INC-{{ ansible_date_time.epoch }}"
+
+  tasks:
+    # ─────────────────────────────────────────────
+    # 1. 사전 진단 — 현재 시스템 상태 수집
+    # ─────────────────────────────────────────────
+    - name: "[진단] 현재 시스템 상태 수집"
+      tags: [always]
+      block:
+        - name: 디스크 사용률 확인
+          shell: df -h --output=pcent,target | tail -n +2 | sort -rn
+          register: disk_usage
+          changed_when: false
+
+        - name: 메모리 사용률 확인
+          shell: free -m | awk '/^Mem/ {printf "%.0f", $3/$2*100}'
+          register: memory_usage
+          changed_when: false
+
+        - name: Load Average 확인
+          shell: uptime | awk -F'load average:' '{print $2}' | tr -d ' '
+          register: load_avg
+          changed_when: false
+
+        - name: 실행 중인 프로세스 Top 5 (CPU)
+          shell: ps aux --sort=-%cpu | head -6
+          register: top_processes
+          changed_when: false
+
+        - name: 진단 요약 출력
+          debug:
+            msg:
+              - "=== {{ inventory_hostname }} 장애 진단 ==="
+              - "메모리 사용률: {{ memory_usage.stdout }}%"
+              - "Load Average: {{ load_avg.stdout }}"
+              - "디스크: {{ disk_usage.stdout_lines[:3] }}"
+
+    # ─────────────────────────────────────────────
+    # 2. 디스크 꽉 참 대응
+    # ─────────────────────────────────────────────
+    - name: "[디스크] 사용률 위험 수준 감지 및 정리"
+      tags: [disk_full]
+      block:
+        - name: 위험 수준 파티션 감지
+          shell: >
+            df --output=pcent,target | tail -n +2 |
+            awk '{gsub(/%/,"",$1); if($1 >= {{ disk_critical_percent }}) print $0}'
+          register: critical_disks
+          changed_when: false
+
+        - name: 오래된 로그 파일 삭제 ({{ log_cleanup_days }}일 이상)
+          find:
+            paths: "{{ item }}"
+            age: "{{ log_cleanup_days }}d"
+            recurse: true
+            file_type: file
+            patterns: "*.log,*.log.*,*.gz"
+          register: old_logs
+          loop: "{{ log_cleanup_paths }}"
+          when: critical_disks.stdout != ""
+
+        - name: 오래된 로그 파일 삭제 실행
+          file:
+            path: "{{ item.1.path }}"
+            state: absent
+          loop: "{{ old_logs.results | subelements('files') }}"
+          when: critical_disks.stdout != "" and old_logs is defined
+          loop_control:
+            label: "{{ item.1.path }}"
+
+        - name: journald 로그 정리 (2일 이상 보존분 삭제)
+          command: journalctl --vacuum-time=2d
+          changed_when: true
+          when: critical_disks.stdout != ""
+
+        - name: Docker 미사용 이미지/컨테이너 정리 (Docker 설치 시)
+          command: docker system prune -f
+          changed_when: true
+          when:
+            - critical_disks.stdout != ""
+            - ansible_facts.packages['docker-ce'] is defined or
+              ansible_facts.packages['docker'] is defined
+          ignore_errors: true
+
+        - name: 디스크 정리 후 상태 재확인
+          shell: df -h --output=pcent,target | tail -n +2
+          register: disk_after
+          changed_when: false
+          when: critical_disks.stdout != ""
+
+        - name: 디스크 정리 결과 출력
+          debug:
+            msg: "정리 후 디스크 상태: {{ disk_after.stdout_lines }}"
+          when: critical_disks.stdout is defined and critical_disks.stdout != ""
+
+    # ─────────────────────────────────────────────
+    # 3. 서비스 다운 대응
+    # ─────────────────────────────────────────────
+    - name: "[서비스] 다운 감지 및 자동 재시작"
+      tags: [service_down]
+      block:
+        - name: 대응 대상 서비스 결정
+          set_fact:
+            target_service: "{{ service_map[group_names | intersect(service_map.keys()) | first] | default('') }}"
+
+        - name: 서비스 상태 확인
+          service_facts:
+
+        - name: 서비스 다운 여부 판단
+          set_fact:
+            service_is_down: >-
+              {{
+                target_service != '' and
+                (ansible_facts.services[target_service + '.service'] is not defined or
+                 ansible_facts.services[target_service + '.service'].state != 'running')
+              }}
+
+        - name: 서비스 재시작 (다운 상태일 때만)
+          service:
+            name: "{{ target_service }}"
+            state: restarted
+          when: service_is_down | bool and target_service != ""
+          register: service_restart
+
+        - name: 서비스 재시작 후 상태 재확인 (30초 대기)
+          wait_for:
+            timeout: 30
+          when: service_restart.changed | default(false)
+
+        - name: 서비스 정상 복구 확인
+          service_facts:
+          when: service_restart.changed | default(false)
+
+        - name: 복구 결과 출력
+          debug:
+            msg: >-
+              {{ target_service }} 서비스:
+              {{ '재시작 성공' if service_restart.changed | default(false) else '정상 실행 중' }}
+          when: target_service != ""
+
+        - name: 최근 서비스 오류 로그 수집 (재시작 실패 시)
+          command: "journalctl -u {{ target_service }} --no-pager -n 50 --since '1 hour ago'"
+          register: service_logs
+          changed_when: false
+          when:
+            - service_is_down | bool
+            - not (service_restart.changed | default(false))
+          failed_when: false
+
+        - name: 서비스 오류 로그 출력 (자동 복구 불가 시 운영자 확인 필요)
+          debug:
+            msg: "{{ service_logs.stdout_lines }}"
+          when: service_logs.stdout_lines is defined
+
+    # ─────────────────────────────────────────────
+    # 4. 메모리 부족 대응
+    # ─────────────────────────────────────────────
+    - name: "[메모리] 사용률 위험 수준 감지 및 캐시 해제"
+      tags: [high_memory]
+      block:
+        - name: 메모리 사용률 위험 판단
+          set_fact:
+            memory_critical: "{{ memory_usage.stdout | int >= memory_critical_percent }}"
+
+        - name: PageCache 해제 (메모리 확보)
+          shell: sync && echo 1 > /proc/sys/vm/drop_caches
+          when: memory_critical | bool
+          changed_when: true
+
+        - name: 메모리 확보 후 사용률 재확인
+          shell: free -m | awk '/^Mem/ {printf "%.0f", $3/$2*100}'
+          register: memory_after
+          changed_when: false
+          when: memory_critical | bool
+
+        - name: 메모리 Top 10 프로세스 출력 (운영자 참고)
+          shell: ps aux --sort=-%mem | head -11
+          register: mem_top
+          changed_when: false
+          when: memory_critical | bool
+
+        - name: 메모리 대응 결과 출력
+          debug:
+            msg:
+              - "메모리 사용률: {{ memory_usage.stdout }}% → {{ memory_after.stdout | default('N/A') }}%"
+              - "Top 프로세스: {{ mem_top.stdout_lines | default([]) }}"
+          when: memory_critical | bool
+
+    # ─────────────────────────────────────────────
+    # 5. OOM 이력 확인
+    # ─────────────────────────────────────────────
+    - name: "[OOM] OOM-Killer 이력 확인"
+      tags: [oom_check]
+      block:
+        - name: OOM-Killer 발생 이력 조회
+          shell: journalctl -k --no-pager --since '24 hours ago' | grep -i 'oom\|killed process' || echo "OOM 이력 없음"
+          register: oom_history
+          changed_when: false
+          failed_when: false
+
+        - name: OOM 이력 출력
+          debug:
+            msg: "{{ oom_history.stdout_lines }}"
+
+    # ─────────────────────────────────────────────
+    # 6. 장애 대응 결과 Slack 알림
+    # ─────────────────────────────────────────────
+    - name: "장애 대응 완료 Slack 알림"
+      tags: [always]
+      uri:
+        url: "{{ slack_webhook_url }}"
+        method: POST
+        body_format: json
+        body:
+          text: "*[{{ incident_id }}] 장애 대응 완료*"
+          attachments:
+            - color: "good"
+              fields:
+                - title: "대상 서버"
+                  value: "{{ inventory_hostname }}"
+                  short: true
+                - title: "메모리"
+                  value: "{{ memory_usage.stdout }}%"
+                  short: true
+                - title: "Load"
+                  value: "{{ load_avg.stdout }}"
+                  short: true
+      when: slack_webhook_url != ""
+      ignore_errors: true
+      changed_when: false

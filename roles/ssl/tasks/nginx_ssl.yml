@@ -1,0 +1,41 @@
+---
+- name: DH 파라미터 생성 (Forward Secrecy용, 최초 1회만)
+  command: openssl dhparam -out /etc/nginx/dhparam.pem 2048
+  args:
+    creates: /etc/nginx/dhparam.pem
+
+- name: Nginx SSL 가상 호스트 설정 배포
+  template:
+    src: ssl.conf.j2
+    dest: "/etc/nginx/conf.d/{{ ssl_domains[0] | default(ansible_fqdn) }}-ssl.conf"
+    owner: root
+    group: root
+    mode: "0644"
+    validate: "nginx -t -c %s"
+  notify: reload nginx
+
+- name: HTTP → HTTPS 리다이렉트 설정 배포
+  template:
+    src: http_redirect.conf.j2
+    dest: "/etc/nginx/conf.d/{{ ssl_domains[0] | default(ansible_fqdn) }}-redirect.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  notify: reload nginx
+
+- name: HTTPS 접속 확인
+  uri:
+    url: "https://{{ ssl_domains[0] | default(ansible_fqdn) }}"
+    validate_certs: "{{ 'yes' if ssl_mode == 'letsencrypt' else 'no' }}"
+    status_code: [200, 301, 302]
+  register: https_check
+  retries: 3
+  delay: 5
+  until: https_check.status in [200, 301, 302]
+  changed_when: false
+  ignore_errors: true
+
+- name: SSL 등급 확인 안내 (Let's Encrypt만)
+  debug:
+    msg: "SSL Labs에서 등급 확인: https://www.ssllabs.com/ssltest/analyze.html?d={{ ssl_domains[0] }}"
+  when: ssl_mode == "letsencrypt" and not ssl_staging

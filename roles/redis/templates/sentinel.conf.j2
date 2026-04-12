@@ -1,0 +1,25 @@
+# sentinel.conf — Ansible 관리 (수동 수정 금지)
+# Redis Sentinel: Master 장애 감지 및 자동 Failover
+
+port {{ redis_sentinel_port }}
+daemonize no
+logfile /var/log/redis/sentinel.log
+dir /tmp
+
+# 감시 대상 Master 설정
+# sentinel monitor <name> <ip> <port> <quorum>
+# quorum: 장애 판정에 필요한 최소 Sentinel 동의 수
+sentinel monitor {{ redis_sentinel_master_name }} {{ hostvars[groups['redis_master'][0]]['ansible_host'] }} {{ redis_port }} {{ redis_sentinel_quorum }}
+
+{% if redis_password %}
+sentinel auth-pass {{ redis_sentinel_master_name }} {{ redis_password }}
+{% endif %}
+
+# Master가 응답 없을 때 장애로 판정하는 시간 (ms)
+sentinel down-after-milliseconds {{ redis_sentinel_master_name }} {{ redis_sentinel_down_after_ms }}
+
+# Failover 제한 시간 (ms)
+sentinel failover-timeout {{ redis_sentinel_master_name }} {{ redis_sentinel_failover_timeout }}
+
+# Failover 시 동시에 새 Master로 동기화할 Replica 수
+sentinel parallel-syncs {{ redis_sentinel_master_name }} {{ redis_sentinel_parallel_syncs }}
