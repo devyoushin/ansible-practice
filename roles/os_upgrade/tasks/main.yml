@@ -1,0 +1,45 @@
+---
+# os_upgrade/tasks/main.yml
+# 실행 순서: 사전점검 → 백업 → OS별 업그레이드 → 재부팅 → 사후검증
+
+- name: OS 패밀리 확인
+  assert:
+    that:
+      - ansible_os_family == "RedHat"
+    fail_msg: "이 롤은 RedHat 계열(RHEL, Rocky, CentOS) 전용입니다. 현재: {{ ansible_os_family }}"
+  tags: [os_upgrade, precheck]
+
+- name: 업그레이드 경로 유효성 검사
+  assert:
+    that:
+      - ansible_distribution_major_version | int < os_upgrade_target_version | int
+      - (ansible_distribution_major_version | int + 1) == os_upgrade_target_version | int
+    fail_msg: >
+      지원하지 않는 업그레이드 경로입니다.
+      현재: {{ ansible_distribution }} {{ ansible_distribution_major_version }}
+      목표: {{ os_upgrade_target_version }}
+      (1단계 업그레이드만 지원: 8→9, 7→8)
+  tags: [os_upgrade, precheck]
+
+- name: "[1단계] 사전 점검"
+  import_tasks: precheck.yml
+  tags: [os_upgrade, precheck]
+
+- name: "[2단계] 중요 설정 백업"
+  import_tasks: backup.yml
+  when: os_upgrade_backup_enabled | bool
+  tags: [os_upgrade, backup]
+
+- name: "[3단계-A] RHEL 업그레이드 (leapp)"
+  import_tasks: leapp_rhel.yml
+  when: ansible_distribution == "RedHat"
+  tags: [os_upgrade, upgrade, rhel]
+
+- name: "[3단계-B] Rocky Linux 업그레이드 (dnf system-upgrade)"
+  import_tasks: dnf_rocky.yml
+  when: ansible_distribution == "Rocky"
+  tags: [os_upgrade, upgrade, rocky]
+
+- name: "[4단계] 업그레이드 후 검증"
+  import_tasks: postcheck.yml
+  tags: [os_upgrade, postcheck]

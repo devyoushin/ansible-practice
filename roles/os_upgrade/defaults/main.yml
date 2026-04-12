@@ -1,0 +1,63 @@
+---
+# ─────────────────────────────────────────────────────────────────────────────
+# OS 업그레이드 대상 버전
+# ─────────────────────────────────────────────────────────────────────────────
+# 지원 경로:
+#   RHEL  7 → 8, RHEL  8 → 9
+#   Rocky 8 → 9
+os_upgrade_target_version: "9"      # 업그레이드 목표 메이저 버전
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 사전 점검 임계값
+# ─────────────────────────────────────────────────────────────────────────────
+os_upgrade_min_disk_gb: 20          # 루트 파티션 최소 여유 공간 (GB)
+os_upgrade_min_memory_mb: 2048      # 최소 메모리 (MB)
+os_upgrade_min_boot_mb: 200         # /boot 파티션 최소 여유 공간 (MB)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 업그레이드 동작 제어
+# ─────────────────────────────────────────────────────────────────────────────
+os_upgrade_dry_run: false           # true: 실제 업그레이드 없이 점검만 실행
+os_upgrade_auto_reboot: true        # 업그레이드 후 자동 재부팅 여부
+os_upgrade_reboot_timeout: 1800     # 재부팅 후 접속 대기 최대 시간 (초, 30분)
+os_upgrade_pre_reboot_delay: 10     # 재부팅 전 대기 (초)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 백업 설정
+# ─────────────────────────────────────────────────────────────────────────────
+os_upgrade_backup_enabled: true
+os_upgrade_backup_dir: "/var/backup/os_upgrade"
+os_upgrade_backup_configs:          # 백업할 중요 설정 파일/디렉토리
+  - /etc/fstab
+  - /etc/hosts
+  - /etc/hostname
+  - /etc/network
+  - /etc/sysconfig/network-scripts
+  - /etc/ssh/sshd_config
+  - /etc/sudoers
+  - /etc/sudoers.d
+  - /etc/cron.d
+  - /etc/crontab
+  - /etc/yum.repos.d
+  - /etc/dnf/dnf.conf
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RHEL (leapp) 전용 설정
+# ─────────────────────────────────────────────────────────────────────────────
+# leapp: Red Hat 공식 OS 업그레이드 도구
+# inhibitor: leapp이 업그레이드 차단 요소로 판단하는 항목
+leapp_inhibitor_check: true         # inhibitor 존재 시 업그레이드 중단
+leapp_report_path: "/var/log/leapp/leapp-report.txt"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Rocky Linux (dnf system-upgrade) 전용 설정
+# ─────────────────────────────────────────────────────────────────────────────
+rocky_upgrade_repo_url: "https://dl.rockylinux.org/pub/rocky/9/BaseOS/x86_64/os/"
+rocky_allow_downgrade: false        # 패키지 다운그레이드 허용 (비권장)
+rocky_best_effort: false            # 일부 패키지 실패 무시 (비권장)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 알림
+# ─────────────────────────────────────────────────────────────────────────────
+os_upgrade_notify_slack: false
+os_upgrade_slack_webhook: "{{ vault_slack_webhook_url | default('') }}"

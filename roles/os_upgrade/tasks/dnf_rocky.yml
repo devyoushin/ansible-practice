@@ -1,0 +1,137 @@
+---
+# dnf_rocky.yml — Rocky Linux 버전 업그레이드
+#
+# Rocky Linux 업그레이드 방식:
+#   dnf system-upgrade 사용 (Fedora/RHEL 계열 표준 도구)
+#   1. dnf system-upgrade download — 새 버전 패키지 다운로드
+#   2. dnf system-upgrade reboot  — 재부팅 후 업그레이드 환경에서 패키지 교체
+#   3. 재부팅 완료 후 Rocky 9 기동
+
+# ── 사전 준비 ─────────────────────────────────────────────────────────────────
+
+- name: dnf-plugin-system-upgrade 설치 (system-upgrade 서브커맨드 제공)
+  dnf:
+    name: dnf-plugin-system-upgrade
+    state: present
+
+- name: Rocky Linux 9 GPG 키 임포트
+  rpm_key:
+    key: "https://dl.rockylinux.org/pub/rocky/RPM-GPG-KEY-Rocky-9"
+    state: present
+  when: os_upgrade_target_version == "9"
+
+- name: 현재 설치된 패키지 모두 최신으로 업데이트 (업그레이드 전 필수)
+  dnf:
+    name: "*"
+    state: latest
+    update_cache: true
+
+# ── 패키지 다운로드 ───────────────────────────────────────────────────────────
+
+- name: Rocky {{ os_upgrade_target_version }} 패키지 다운로드
+  command: >
+    dnf system-upgrade download
+    --releasever={{ os_upgrade_target_version }}
+    --assumeyes
+    {% if rocky_allow_downgrade %}--allow-downgrade{% endif %}
+    {% if rocky_best_effort %}--best{% endif %}
+  register: rocky_download
+  changed_when: true
+  async: 3600    # 다운로드 최대 1시간 (네트워크 속도에 따라 소요)
+  poll: 30
+  when: not (os_upgrade_dry_run | bool)
+
+- name: "[DRY RUN] 다운로드 명령 미리 보기"
+  debug:
+    msg: >
+      실행될 명령:
+      dnf system-upgrade download --releasever={{ os_upgrade_target_version }} --assumeyes
+  when: os_upgrade_dry_run | bool
+
+- name: 다운로드 결과 출력
+  debug:
+    msg: "{{ rocky_download.stdout_lines[-20:] }}"
+  when:
+    - not (os_upgrade_dry_run | bool)
+    - rocky_download.stdout_lines is defined
+
+# ── 업그레이드 재부팅 ─────────────────────────────────────────────────────────
+# dnf system-upgrade reboot: 재부팅 후 업그레이드 환경(plymouth)에서 패키지 교체
+# 이 재부팅은 일반 재부팅보다 오래 걸림 (패키지 수에 따라 15분~1시간)
+
+- name: 업그레이드 재부팅 예고 로그
+  debug:
+    msg:
+      - "업그레이드 재부팅을 시작합니다."
+      - "재부팅 완료까지 최대 {{ (os_upgrade_reboot_timeout // 60) }}분 소요될 수 있습니다."
+      - "재부팅 중에는 SSH 접속이 불가합니다."
+  when:
+    - os_upgrade_auto_reboot | bool
+    - not (os_upgrade_dry_run | bool)
+
+- name: dnf system-upgrade reboot (업그레이드 재부팅 시작)
+  command: dnf system-upgrade reboot
+  async: 10
+  poll: 0         # 응답 기다리지 않음 (재부팅이 즉시 실행되므로 연결 끊김)
+  when:
+    - os_upgrade_auto_reboot | bool
+    - not (os_upgrade_dry_run | bool)
+
+# ── 재부팅 완료 대기 ─────────────────────────────────────────────────────────
+
+- name: 재부팅 완료 대기 (Rocky {{ os_upgrade_target_version }} 기동 확인)
+  wait_for_connection:
+    delay: 120          # 업그레이드 환경 초기화 대기 (최소 2분)
+    sleep: 20           # 20초마다 연결 시도
+    timeout: "{{ os_upgrade_reboot_timeout }}"
+    connect_timeout: 10
+  when:
+    - os_upgrade_auto_reboot | bool
+    - not (os_upgrade_dry_run | bool)
+
+- name: Fact 재수집 (업그레이드 후 OS 정보 갱신)
+  setup:
+    gather_subset:
+      - distribution
+      - kernel
+  when: not (os_upgrade_dry_run | bool)
+
+# ── 업그레이드 결과 검증 ──────────────────────────────────────────────────────
+
+- name: 업그레이드된 OS 버전 확인
+  command: cat /etc/rocky-release
+  register: rocky_release
+  changed_when: false
+  failed_when: false
+  when: not (os_upgrade_dry_run | bool)
+
+- name: 업그레이드 버전 검증
+  assert:
+    that:
+      - os_upgrade_target_version in rocky_release.stdout
+    fail_msg: >
+      Rocky Linux 버전 업그레이드 확인 실패!
+      /etc/rocky-release 내용: {{ rocky_release.stdout }}
+      journalctl -b -1 로 이전 부팅 로그를 확인하세요.
+    success_msg: "Rocky Linux {{ os_upgrade_target_version }} 업그레이드 성공: {{ rocky_release.stdout }}"
+  when: not (os_upgrade_dry_run | bool)
+
+# ── 업그레이드 후 정리 ────────────────────────────────────────────────────────
+
+- name: 업그레이드 후 남은 구버전 패키지 확인
+  command: dnf list --extras
+  register: extras_list
+  changed_when: false
+  when: not (os_upgrade_dry_run | bool)
+
+- name: 구버전 패키지 목록 출력 (수동 검토 후 삭제 여부 결정 권장)
+  debug:
+    msg: "{{ extras_list.stdout_lines }}"
+  when:
+    - not (os_upgrade_dry_run | bool)
+    - extras_list.stdout_lines is defined
+
+- name: dnf autoremove (의존성 없는 구버전 패키지 자동 제거)
+  dnf:
+    autoremove: true
+  when: not (os_upgrade_dry_run | bool)

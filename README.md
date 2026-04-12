@@ -296,6 +296,35 @@ molecule destroy      # 컨테이너 삭제
 
 ---
 
+### OS 버전 업그레이드 (RHEL / Rocky Linux)
+
+```bash
+# [권장] 먼저 dry-run으로 업그레이드 가능 여부 점검
+ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+  -e "os_upgrade_target_version=9 os_upgrade_dry_run=true"
+
+# 특정 서버 1대만 업그레이드 (검증 후 전체 진행)
+ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+  -e "os_upgrade_target_version=9" --limit prod-app-01
+
+# 사전 점검 + 백업만 실행 (업그레이드 없음)
+ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+  --tags precheck,backup -e "os_upgrade_target_version=9"
+
+# 전체 앱서버 순차 업그레이드 (serial: 1 — 1대씩 자동 진행)
+ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+  -e "os_upgrade_target_version=9" --limit appservers
+```
+
+> **지원 업그레이드 경로**
+> | OS | 현재 버전 | 목표 버전 | 사용 도구 |
+> |---|---|---|---|
+> | RHEL | 7 | 8 | `leapp` |
+> | RHEL | 8 | 9 | `leapp` |
+> | Rocky Linux | 8 | 9 | `dnf system-upgrade` |
+>
+> ⚠️ 주의: 2단계 이상 건너뛰기 불가 (8→10 불가, 8→9→10 순서로 진행)
+
 ### Redis Sentinel 동작 원리
 
 ```

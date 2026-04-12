@@ -1,0 +1,40 @@
+============================================================
+OS 업그레이드 완료 리포트
+생성일시: {{ ansible_date_time.iso8601 }}
+============================================================
+
+[대상 서버]
+  호스트명: {{ inventory_hostname }}
+  IP 주소:  {{ ansible_default_ipv4.address }}
+  배포판:   {{ ansible_distribution }} {{ ansible_distribution_version }}
+  커널:     {{ current_kernel.stdout }}
+  아키텍처: {{ ansible_architecture }}
+
+[업그레이드 결과]
+  이전 버전: {{ ansible_distribution }} {{ ansible_distribution_major_version | int - 1 }}
+  이후 버전: {{ ansible_distribution }} {{ ansible_distribution_version }}
+  완료 시각: {{ ansible_date_time.iso8601 }}
+
+[서비스 상태]
+  Failed 서비스: {{ failed_services.stdout if failed_services.stdout else "없음" }}
+
+  실행 중인 서비스:
+{% for svc in running_services_after.stdout_lines %}
+    - {{ svc }}
+{% endfor %}
+
+[시스템 상태]
+  SELinux: {{ selinux_status.stdout | default('확인 불가') }}
+  기본 경로: {{ default_route.stdout }}
+  DNS:     {{ 'OK' if dns_check.rc == 0 else '확인 필요' }}
+
+[백업 위치]
+  {{ os_upgrade_backup_dir }}/pre_upgrade_{{ ansible_date_time.date }}.tar.gz
+
+[다음 권장 작업]
+  1. 애플리케이션 서비스 동작 확인 (nginx, mariadb, myapp 등)
+  2. Failed 서비스가 있다면 journalctl -u <서비스명> 으로 로그 확인
+  3. SELinux Enforcing 상태 확인: getenforce
+  4. 구버전 패키지 제거: dnf remove $(dnf list --extras -q | awk 'NR>1 {print $1}')
+  5. 재부팅 1회 추가 권장 (새 커널 정상 기동 확인)
+============================================================

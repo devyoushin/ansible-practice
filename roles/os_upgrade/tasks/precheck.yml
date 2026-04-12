@@ -1,0 +1,139 @@
+---
+# precheck.yml — 업그레이드 전 필수 점검
+# 하나라도 실패하면 업그레이드 중단 (안전 우선)
+
+- name: 현재 OS 정보 출력
+  debug:
+    msg:
+      - "배포판: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+      - "커널:   {{ ansible_kernel }}"
+      - "업그레이드 목표: {{ ansible_distribution }} {{ os_upgrade_target_version }}"
+
+# ── 디스크 공간 점검 ──────────────────────────────────────────────────────────
+
+- name: 루트 파티션 여유 공간 확인
+  shell: df -BG / | awk 'NR==2 {gsub(/G/,"",$4); print $4}'
+  register: root_free_gb
+  changed_when: false
+
+- name: 루트 파티션 여유 공간 검증 (최소 {{ os_upgrade_min_disk_gb }}GB 필요)
+  assert:
+    that:
+      - root_free_gb.stdout | int >= os_upgrade_min_disk_gb
+    fail_msg: >
+      루트 파티션 여유 공간 부족: {{ root_free_gb.stdout }}GB
+      업그레이드에는 최소 {{ os_upgrade_min_disk_gb }}GB 필요합니다.
+      불필요한 파일을 정리 후 재시도하세요.
+
+- name: /boot 파티션 여유 공간 확인
+  shell: df -BM /boot | awk 'NR==2 {gsub(/M/,"",$4); print $4}'
+  register: boot_free_mb
+  changed_when: false
+
+- name: /boot 여유 공간 검증 (최소 {{ os_upgrade_min_boot_mb }}MB 필요)
+  assert:
+    that:
+      - boot_free_mb.stdout | int >= os_upgrade_min_boot_mb
+    fail_msg: >
+      /boot 여유 공간 부족: {{ boot_free_mb.stdout }}MB
+      최소 {{ os_upgrade_min_boot_mb }}MB 필요합니다.
+      오래된 커널 패키지를 삭제 후 재시도: dnf remove $(dnf repoquery --installonly --latest-limit=-2)
+
+# ── 메모리 점검 ───────────────────────────────────────────────────────────────
+
+- name: 물리 메모리 확인
+  shell: free -m | awk '/^Mem/ {print $2}'
+  register: total_memory_mb
+  changed_when: false
+
+- name: 메모리 충분 여부 검증 (최소 {{ os_upgrade_min_memory_mb }}MB 필요)
+  assert:
+    that:
+      - total_memory_mb.stdout | int >= os_upgrade_min_memory_mb
+    fail_msg: >
+      메모리 부족: {{ total_memory_mb.stdout }}MB
+      업그레이드에는 최소 {{ os_upgrade_min_memory_mb }}MB 필요합니다.
+
+# ── 네트워크 점검 ──────────────────────────────────────────────────────────────
+
+- name: 인터넷 연결 확인 (패키지 다운로드용)
+  uri:
+    url: "https://dl.rockylinux.org"
+    timeout: 10
+    status_code: [200, 301, 302]
+  register: net_check
+  failed_when: false
+  changed_when: false
+  when: ansible_distribution == "Rocky"
+
+- name: RHEL 구독 상태 확인
+  command: subscription-manager status
+  register: rhel_subscription
+  changed_when: false
+  failed_when: false
+  when: ansible_distribution == "RedHat"
+
+- name: RHEL 구독 상태 검증
+  assert:
+    that:
+      - "'Current' in rhel_subscription.stdout or 'Subscribed' in rhel_subscription.stdout"
+    fail_msg: >
+      RHEL 구독이 유효하지 않습니다.
+      subscription-manager register 로 등록 후 재시도하세요.
+      출력: {{ rhel_subscription.stdout }}
+  when: ansible_distribution == "RedHat"
+
+# ── 패키지 상태 점검 ─────────────────────────────────────────────────────────
+
+- name: 현재 설치된 패키지 중 업데이트 보류 중인 패키지 확인
+  command: dnf check-update --quiet
+  register: pkg_updates
+  changed_when: false
+  failed_when: pkg_updates.rc not in [0, 100]  # 100 = 업데이트 있음 (정상)
+
+- name: 업그레이드 전 현재 패키지 전체 업데이트 적용
+  dnf:
+    name: "*"
+    state: latest
+    update_cache: true
+  when: pkg_updates.rc == 100
+
+- name: 충돌 패키지 확인 (dnf check)
+  command: dnf check
+  register: dnf_check
+  changed_when: false
+  failed_when: dnf_check.rc != 0
+
+# ── 실행 중인 서비스 스냅샷 (사후 비교용) ────────────────────────────────────
+
+- name: 현재 실행 중인 서비스 목록 저장 (사후 비교용)
+  shell: systemctl list-units --type=service --state=running --no-legend | awk '{print $1}'
+  register: running_services_before
+  changed_when: false
+
+- name: 실행 중인 서비스 목록 파일로 저장
+  copy:
+    content: "{{ running_services_before.stdout }}"
+    dest: "{{ os_upgrade_backup_dir }}/running_services_before.txt"
+    mode: "0640"
+  when: os_upgrade_backup_enabled | bool
+
+# ── RPM DB 점검 ───────────────────────────────────────────────────────────────
+
+- name: RPM DB 무결성 확인
+  command: rpm --verifydb
+  register: rpm_verify
+  changed_when: false
+  failed_when: rpm_verify.rc != 0
+
+# ── 사전 점검 결과 요약 ────────────────────────────────────────────────────────
+
+- name: 사전 점검 통과 보고
+  debug:
+    msg:
+      - "=== 사전 점검 통과 ==="
+      - "루트 여유 공간: {{ root_free_gb.stdout }}GB (최소 {{ os_upgrade_min_disk_gb }}GB)"
+      - "/boot 여유 공간: {{ boot_free_mb.stdout }}MB (최소 {{ os_upgrade_min_boot_mb }}MB)"
+      - "메모리: {{ total_memory_mb.stdout }}MB (최소 {{ os_upgrade_min_memory_mb }}MB)"
+      - "RPM DB: 정상"
+      - "모든 점검 통과 — 업그레이드 진행 가능"

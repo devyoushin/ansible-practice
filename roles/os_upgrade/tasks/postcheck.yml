@@ -1,0 +1,167 @@
+---
+# postcheck.yml — 업그레이드 후 시스템 정상 여부 검증
+
+- name: "[사후점검] 업그레이드 후 시스템 상태 검증 시작"
+  debug:
+    msg: "업그레이드 후 검증을 시작합니다: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+
+# ── 버전 확인 ─────────────────────────────────────────────────────────────────
+
+- name: 커널 버전 확인
+  command: uname -r
+  register: current_kernel
+  changed_when: false
+
+- name: OS 버전 확인
+  command: cat /etc/os-release
+  register: os_release_info
+  changed_when: false
+
+# ── 서비스 상태 확인 ──────────────────────────────────────────────────────────
+
+- name: Failed 서비스 확인
+  command: systemctl --failed --no-legend
+  register: failed_services
+  changed_when: false
+  failed_when: false
+
+- name: Failed 서비스 경고 출력
+  debug:
+    msg:
+      - "⚠️  Failed 서비스 발견! 수동 확인 필요:"
+      - "{{ failed_services.stdout_lines }}"
+  when: failed_services.stdout != ""
+
+- name: 핵심 서비스 실행 상태 확인
+  service_facts:
+
+- name: 현재 실행 중인 서비스 목록 저장 (업그레이드 전과 비교)
+  shell: systemctl list-units --type=service --state=running --no-legend | awk '{print $1}'
+  register: running_services_after
+  changed_when: false
+
+# ── 네트워크 확인 ─────────────────────────────────────────────────────────────
+
+- name: 네트워크 인터페이스 확인
+  command: ip addr show
+  register: network_interfaces
+  changed_when: false
+
+- name: 기본 게이트웨이 라우팅 확인
+  command: ip route show default
+  register: default_route
+  changed_when: false
+
+- name: DNS 해석 확인
+  command: nslookup google.com
+  register: dns_check
+  changed_when: false
+  failed_when: false
+
+# ── 디스크 마운트 확인 ────────────────────────────────────────────────────────
+
+- name: 파일시스템 마운트 상태 확인
+  command: mount | grep -E "^/dev"
+  register: mount_status
+  changed_when: false
+
+- name: fstab 기반 마운트 전체 확인
+  command: findmnt --verify
+  register: fstab_verify
+  changed_when: false
+  failed_when: fstab_verify.rc != 0
+
+# ── SELinux 확인 ─────────────────────────────────────────────────────────────
+
+- name: SELinux 상태 확인
+  command: getenforce
+  register: selinux_status
+  changed_when: false
+  failed_when: false
+
+- name: SELinux 비활성 경고
+  debug:
+    msg: "⚠️  SELinux가 {{ selinux_status.stdout }} 상태입니다. Enforcing 권장."
+  when: selinux_status.stdout != "Enforcing"
+
+# ── SSH 접속 가능 여부 (자기 자신에게 테스트) ────────────────────────────────
+
+- name: sshd 서비스 상태 확인
+  command: systemctl is-active sshd
+  register: sshd_active
+  changed_when: false
+  failed_when: sshd_active.stdout != "active"
+
+# ── 업그레이드 전/후 서비스 비교 ─────────────────────────────────────────────
+
+- name: 업그레이드 전 서비스 목록 읽기
+  slurp:
+    src: "{{ os_upgrade_backup_dir }}/running_services_before.txt"
+  register: services_before_raw
+  failed_when: false
+
+- name: 업그레이드 전/후 서비스 차이 분석
+  set_fact:
+    services_before: "{{ (services_before_raw.content | b64decode).split('\n') | select | list }}"
+    services_after: "{{ running_services_after.stdout_lines }}"
+  when: services_before_raw.content is defined
+
+- name: 업그레이드 후 사라진 서비스 목록 출력 (수동 확인 필요)
+  debug:
+    msg: "업그레이드 후 중단된 서비스: {{ services_before | difference(services_after) }}"
+  when:
+    - services_before is defined
+    - services_before | difference(services_after) | length > 0
+
+# ── 최종 리포트 생성 ──────────────────────────────────────────────────────────
+
+- name: 업그레이드 결과 리포트 생성
+  template:
+    src: upgrade_report.j2
+    dest: "{{ os_upgrade_backup_dir }}/upgrade_report_{{ ansible_date_time.date }}.txt"
+    mode: "0640"
+
+- name: 업그레이드 완료 최종 요약
+  debug:
+    msg:
+      - "============================================"
+      - "OS 업그레이드 사후 점검 완료"
+      - "============================================"
+      - "호스트:    {{ inventory_hostname }}"
+      - "배포판:    {{ ansible_distribution }} {{ ansible_distribution_version }}"
+      - "커널:      {{ current_kernel.stdout }}"
+      - "SELinux:   {{ selinux_status.stdout | default('N/A') }}"
+      - "sshd:      {{ sshd_active.stdout }}"
+      - "Failed 서비스: {{ failed_services.stdout_lines | length }}개"
+      - "리포트:    {{ os_upgrade_backup_dir }}/upgrade_report_{{ ansible_date_time.date }}.txt"
+      - "============================================"
+
+# ── Slack 알림 ────────────────────────────────────────────────────────────────
+
+- name: 업그레이드 완료 Slack 알림
+  uri:
+    url: "{{ os_upgrade_slack_webhook }}"
+    method: POST
+    body_format: json
+    body:
+      text: ":white_check_mark: *OS 업그레이드 완료*"
+      attachments:
+        - color: "good"
+          fields:
+            - title: "호스트"
+              value: "{{ inventory_hostname }}"
+              short: true
+            - title: "버전"
+              value: "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+              short: true
+            - title: "커널"
+              value: "{{ current_kernel.stdout }}"
+              short: true
+            - title: "Failed 서비스"
+              value: "{{ failed_services.stdout_lines | length }}개"
+              short: true
+  when:
+    - os_upgrade_notify_slack | bool
+    - os_upgrade_slack_webhook != ""
+  changed_when: false
+  ignore_errors: true

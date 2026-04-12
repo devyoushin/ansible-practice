@@ -1,0 +1,104 @@
+---
+# os_upgrade.yml — RHEL / Rocky Linux 버전 업그레이드
+#
+# 지원 경로:
+#   RHEL  7 → 8  (leapp 사용)
+#   RHEL  8 → 9  (leapp 사용)
+#   Rocky 8 → 9  (dnf system-upgrade 사용)
+#
+# ⚠️  주의사항:
+#   - 반드시 1대씩(serial: 1) 실행할 것 — 장애 시 즉시 중단
+#   - 스냅샷/백업 확보 후 실행 권장 (특히 prod)
+#   - 업그레이드 중 서비스 중단 발생 (재부팅 포함)
+#   - dry_run=true 로 먼저 점검 후 실제 업그레이드 진행 권장
+#
+# ─────────────────────────────────────────────────────────────────────────────
+# 사용 예시
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# [1] 사전 점검만 (실제 업그레이드 없음, 안전하게 먼저 실행)
+#   ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+#     -e "os_upgrade_target_version=9 os_upgrade_dry_run=true"
+#
+# [2] 특정 서버 1대만 업그레이드 (검증용)
+#   ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+#     -e "os_upgrade_target_version=9" --limit prod-app-01
+#
+# [3] 전체 앱서버 순차 업그레이드 (1대씩)
+#   ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+#     -e "os_upgrade_target_version=9" --limit appservers
+#
+# [4] 점검만 (백업 포함)
+#   ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+#     --tags precheck,backup -e "os_upgrade_target_version=9"
+#
+# [5] 업그레이드 후 사후 점검만 재실행
+#   ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+#     --tags postcheck -e "os_upgrade_target_version=9"
+
+- name: "OS 버전 업그레이드: RHEL / Rocky Linux"
+  hosts: "{{ target_hosts | default('appservers') }}"
+  become: true
+  gather_facts: true
+
+  # ⚠️ serial: 1 — 절대 병렬 실행 금지
+  # 한 서버에서 실패 시 즉시 중단, 나머지 서버 보호
+  serial: 1
+
+  vars:
+    # 이 변수는 반드시 -e 로 지정해야 합니다
+    # os_upgrade_target_version: "9"
+
+    # 업그레이드 전 서비스 중단 여부 (운영 환경에서 권장)
+    pre_upgrade_stop_services: false
+    pre_upgrade_services:
+      - nginx
+      - myapp
+
+  pre_tasks:
+    - name: 업그레이드 대상 버전 변수 확인
+      assert:
+        that:
+          - os_upgrade_target_version is defined
+        fail_msg: "-e os_upgrade_target_version=9 옵션을 반드시 지정하세요."
+
+    - name: 업그레이드 시작 알림
+      debug:
+        msg:
+          - "================================================================"
+          - "OS 업그레이드 시작"
+          - "호스트: {{ inventory_hostname }}"
+          - "현재: {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "목표: {{ ansible_distribution }} {{ os_upgrade_target_version }}"
+          - "Dry Run: {{ os_upgrade_dry_run | default(false) }}"
+          - "================================================================"
+
+    - name: 업그레이드 전 서비스 정지 (설정된 경우)
+      service:
+        name: "{{ item }}"
+        state: stopped
+      loop: "{{ pre_upgrade_services }}"
+      when: pre_upgrade_stop_services | bool
+      failed_when: false
+
+  roles:
+    - role: os_upgrade
+
+  post_tasks:
+    - name: 서비스 재시작 (업그레이드 후)
+      service:
+        name: "{{ item }}"
+        state: started
+        enabled: true
+      loop: "{{ pre_upgrade_services }}"
+      when: pre_upgrade_stop_services | bool
+      failed_when: false
+
+    - name: 업그레이드 완료 최종 메시지
+      debug:
+        msg:
+          - "================================================================"
+          - "{{ inventory_hostname }} 업그레이드 완료!"
+          - "{{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "다음 서버로 진행하려면 엔터를 누르세요..."
+          - "================================================================"

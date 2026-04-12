@@ -22,6 +22,7 @@ ansible-practice/
 │   ├── site.yml                   # 전체 오케스트레이션 (메인 진입점)
 │   ├── rolling_update.yml         # 무중단 롤링 업데이트 (25% serial)
 │   ├── blue_green_deploy.yml      # Blue-Green 배포 (즉시 롤백 가능)
+│   ├── os_upgrade.yml             # RHEL/Rocky OS 버전 업그레이드 (serial: 1)
 │   ├── maintenance.yml            # 운영 유지보수 (디스크/로그/패키지)
 │   ├── incident_response.yml      # 장애 자동 대응 (디스크/서비스/메모리)
 │   ├── data_migration.yml         # 대용량 데이터 마이그레이션
@@ -43,6 +44,7 @@ ansible-practice/
 │   ├── haproxy/                   # HAProxy 로드밸런서 (stats, health check)
 │   ├── monitoring/                # Node Exporter + Prometheus (alert rules)
 │   ├── redis/                     # Redis 7 + Sentinel (HA, maxmemory, 보안)
+│   ├── os_upgrade/                # RHEL/Rocky OS 버전 업그레이드 (leapp/dnf)
 │   └── data_migration/            # 대용량 데이터 이전 (rsync/tar/parallel/db_dump)
 │
 ├── molecule/default/              # 롤 단위 테스트 (Docker)
@@ -77,6 +79,7 @@ ansible-practice/
 | `haproxy` | 로드밸런싱, stats, drain/enable 소켓 제어 |
 | `monitoring` | Node Exporter, Prometheus, Alert Rules |
 | `redis` | Redis 7, maxmemory-policy, Sentinel (HA), 보안 강화 |
+| `os_upgrade` | RHEL leapp / Rocky dnf system-upgrade, 사전점검, 백업, 사후검증 |
 | `data_migration` | rsync/tar_stream/parallel/db_dump, 체크섬 검증 |
 
 ---

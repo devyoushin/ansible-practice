@@ -1,0 +1,70 @@
+---
+# backup.yml — 업그레이드 전 중요 설정 백업
+# 업그레이드 실패 시 수동 복구에 사용
+
+- name: 백업 디렉토리 생성
+  file:
+    path: "{{ os_upgrade_backup_dir }}/{{ ansible_date_time.date }}_pre_upgrade"
+    state: directory
+    owner: root
+    group: root
+    mode: "0700"
+  register: backup_dir_result
+
+- name: 백업 경로 변수 설정
+  set_fact:
+    backup_path: "{{ backup_dir_result.path }}"
+
+- name: 중요 설정 파일 백업
+  copy:
+    src: "{{ item }}"
+    dest: "{{ backup_path }}/"
+    remote_src: true
+    owner: root
+    group: root
+    mode: preserve
+  loop: "{{ os_upgrade_backup_configs }}"
+  failed_when: false     # 없는 경로는 무시 (환경마다 다름)
+
+- name: 설치된 패키지 전체 목록 백업
+  shell: "rpm -qa --queryformat '%{NAME}-%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort > {{ backup_path }}/installed_packages.txt"
+  changed_when: true
+
+- name: 활성화된 yum/dnf 저장소 목록 백업
+  shell: "dnf repolist --enabled > {{ backup_path }}/enabled_repos.txt"
+  changed_when: true
+
+- name: systemd 서비스 활성화 상태 백업
+  shell: "systemctl list-unit-files --type=service --no-legend > {{ backup_path }}/systemd_services.txt"
+  changed_when: true
+
+- name: 현재 커널 목록 백업
+  shell: "rpm -q kernel kernel-core kernel-modules | sort > {{ backup_path }}/installed_kernels.txt"
+  changed_when: true
+  failed_when: false
+
+- name: 네트워크 설정 백업 (nmcli)
+  shell: "nmcli connection show > {{ backup_path }}/network_connections.txt"
+  changed_when: true
+  failed_when: false
+
+- name: 크론 설정 백업
+  shell: "crontab -l > {{ backup_path }}/root_crontab.txt 2>/dev/null || echo 'no crontab'"
+  changed_when: true
+
+- name: 백업 tar 아카이브 생성
+  archive:
+    path: "{{ backup_path }}"
+    dest: "{{ os_upgrade_backup_dir }}/pre_upgrade_{{ ansible_date_time.date }}.tar.gz"
+    format: gz
+    owner: root
+    group: root
+    mode: "0600"
+
+- name: 백업 완료 보고
+  debug:
+    msg:
+      - "=== 백업 완료 ==="
+      - "백업 경로: {{ backup_path }}"
+      - "아카이브: {{ os_upgrade_backup_dir }}/pre_upgrade_{{ ansible_date_time.date }}.tar.gz"
+      - "업그레이드 실패 시 이 파일로 수동 복구 가능"
