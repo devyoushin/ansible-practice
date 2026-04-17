@@ -1,54 +1,233 @@
 # =============================================================
-# Nginx 메인 설정 템플릿
+# Nginx 메인 설정 (Ansible 관리 - 직접 수정 금지)
+# 호스트: {{ inventory_hostname }} | 환경: {{ environment }}
 # =============================================================
 
+# -------------------------------------------------------
+# [글로벌 설정]
+# -------------------------------------------------------
 user {{ nginx_user }};
+
 worker_processes {{ nginx_worker_processes }};
+# auto = CPU 코어 수만큼 워커 생성 (권장)
+# 코어 수 이상으로 올려도 성능 향상 없음 (컨텍스트 스위칭 비용만 증가)
+
+worker_rlimit_nofile 65536;
+# 워커 프로세스 하나가 열 수 있는 파일(소켓 포함) 최대 수
+# worker_connections × 2 이상으로 설정 (연결 1개 = 소켓 2개)
+# ulimit nofile 값과 일치시켜야 실제로 적용됨
+
 error_log /var/log/nginx/error.log warn;
+# 에러 로그 레벨: debug < info < notice < warn < error < crit < alert < emerg
+# prod에서는 warn 이상만 기록 (debug는 너무 많은 로그)
+
 pid /var/run/nginx.pid;
+# 마스터 프로세스의 PID 파일 (reload/stop 시 사용)
 
 events {
     worker_connections {{ nginx_worker_connections }};
-    multi_accept on;
+    # 워커 하나당 최대 동시 연결 수
+    # 전체 최대 연결 = worker_processes × worker_connections
+
     use epoll;
+    # Linux 최적 I/O 이벤트 모델
+    # epoll: O(1) 복잡도로 수만 개 소켓을 효율적으로 모니터링
+    # select/poll은 소켓 수에 비례해 느려짐 (O(n))
+
+    multi_accept on;
+    # 워커가 새 연결을 하나씩이 아닌 한 번에 여러 개 수락
+    # 순간 폭발 트래픽(burst) 처리 성능 향상
 }
 
 http {
     include /etc/nginx/mime.types;
-    default_type application/octet-stream;
+    # 파일 확장자 → Content-Type 매핑 (예: .js → application/javascript)
 
-    # 로그 포맷
+    default_type application/octet-stream;
+    # mime.types에 없는 파일 타입의 기본 Content-Type (바이너리 스트림)
+
+    # -------------------------------------------------------
+    # [로그 포맷 설정]
+    # -------------------------------------------------------
+{% if nginx_access_log_format == 'json' %}
+    # JSON 형식 (Elasticsearch, Splunk, CloudWatch Logs 연동 시 파싱 불필요)
+    log_format json_combined escape=json
+        '{'
+        '"time":"$time_iso8601",'              # 요청 시각 (ISO 8601 형식)
+        '"remote_addr":"$remote_addr",'        # 클라이언트 IP (LB 뒤면 LB IP)
+        '"real_ip":"$realip_remote_addr",'     # 실제 클라이언트 IP (X-Forwarded-For)
+        '"method":"$request_method",'          # HTTP 메서드 (GET, POST 등)
+        '"uri":"$uri",'                        # 요청 URI (/api/users 등)
+        '"query":"$query_string",'             # 쿼리 파라미터 (?page=1 등)
+        '"status":$status,'                    # HTTP 응답 코드 (200, 404, 500)
+        '"bytes":$body_bytes_sent,'            # 응답 바이트 수 (로그 분석용)
+        '"duration":$request_time,'            # 요청 처리 시간(초) - 슬로우 로그 분석
+        '"upstream_time":"$upstream_response_time",'  # 앱서버 응답 시간
+        '"upstream_addr":"$upstream_addr",'    # 요청을 처리한 앱서버 주소
+        '"referer":"$http_referer",'           # 이전 페이지 URL
+        '"user_agent":"$http_user_agent",'     # 브라우저/봇 정보
+        '"request_id":"$request_id"'           # 요청 추적 ID (분산 트레이싱)
+        '}';
+    access_log /var/log/nginx/access.log json_combined;
+{% else %}
+    # 전통적인 Combined 형식 (텍스트로 보기 쉬움, grep/awk로 분석)
     log_format main '$remote_addr - $remote_user [$time_local] "$request" '
                     '$status $body_bytes_sent "$http_referer" '
-                    '"$http_user_agent" "$http_x_forwarded_for"';
-
+                    '"$http_user_agent" "$http_x_forwarded_for" '
+                    'rt=$request_time uct="$upstream_connect_time" '
+                    'uht="$upstream_header_time" urt="$upstream_response_time"';
+    # rt  = 전체 요청 처리 시간 (Nginx 측)
+    # uct = 앱서버 연결 시간
+    # uht = 앱서버가 첫 바이트 응답하는 데 걸린 시간
+    # urt = 앱서버 전체 응답 시간
     access_log /var/log/nginx/access.log main;
-
-    # 성능 설정
-    sendfile on;
-    tcp_nopush on;
-    tcp_nodelay on;
-    keepalive_timeout {{ nginx_keepalive_timeout }};
-    send_timeout {{ nginx_send_timeout }};
-    client_max_body_size {{ nginx_client_max_body_size }};
-
-    # 보안 헤더
-    server_tokens off;
-    add_header X-Frame-Options "SAMEORIGIN";
-    add_header X-Content-Type-Options "nosniff";
-    add_header X-XSS-Protection "1; mode=block";
-
-{% if nginx_gzip_enabled %}
-    # Gzip 압축
-    gzip on;
-    gzip_vary on;
-    gzip_proxied any;
-    gzip_comp_level 6;
-    gzip_types text/plain text/css text/xml application/json
-               application/javascript application/rss+xml
-               application/atom+xml image/svg+xml;
 {% endif %}
 
-    # 가상 호스트 설정 포함
+    # -------------------------------------------------------
+    # [성능 최적화]
+    # -------------------------------------------------------
+    sendfile on;
+    # 파일 전송 시 read() + write() 대신 커널의 sendfile() 시스템 콜 사용
+    # 메모리 복사 없이 파일 → 소켓 직접 전송 (정적 파일 서빙 성능 2~3배 향상)
+
+    tcp_nopush on;
+    # sendfile과 함께 사용. 응답 헤더와 파일 첫 번째 청크를 하나의 TCP 패킷으로 묶음
+    # 패킷 수를 줄여 레이턴시 감소 (sendfile이 on일 때만 효과 있음)
+
+    tcp_nodelay on;
+    # Nagle 알고리즘 비활성화 - 작은 패킷을 즉시 전송
+    # keepalive 연결에서 응답 지연 방지 (tcp_nopush와 함께 사용)
+
+    keepalive_timeout {{ nginx_keepalive_timeout }};
+    # 클라이언트 keepalive 연결 유지 시간
+    # 설정값 이후로 응답 헤더에 "Connection: close" 포함
+
+    send_timeout {{ nginx_send_timeout }};
+    # 응답 전송 타임아웃 - 이 시간 안에 클라이언트가 받지 않으면 연결 종료
+
+    client_max_body_size {{ nginx_client_max_body_size }};
+    # 요청 본문 크기 제한 (파일 업로드, API 요청 크기)
+
+    # -------------------------------------------------------
+    # [보안 헤더]
+    # 브라우저에게 보안 정책을 전달하는 HTTP 응답 헤더
+    # -------------------------------------------------------
+    server_tokens off;
+    # 응답 헤더와 에러 페이지에서 Nginx 버전 숨기기
+    # (예: "Server: nginx" 만 표시, "Server: nginx/1.24.0" 미표시)
+    # 버전 정보가 노출되면 해당 버전 취약점 타겟 공격에 활용됨
+
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    # 이 사이트를 <iframe>에 삽입 허용 범위
+    # SAMEORIGIN = 같은 도메인에서만 허용 (클릭재킹 공격 방어)
+
+    add_header X-Content-Type-Options "nosniff" always;
+    # 브라우저가 Content-Type을 임의로 추측(sniff)하지 못하도록 강제
+    # 예: .txt 파일을 HTML로 해석해 XSS 실행되는 것 방지
+
+    add_header X-XSS-Protection "1; mode=block" always;
+    # 브라우저 내장 XSS 필터 활성화 (구형 브라우저용)
+    # 현대 브라우저는 CSP로 대체되었지만 하위 호환성 위해 유지
+
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+    # 다른 도메인으로 이동 시 Referer 헤더 정보 제한
+    # 같은 도메인: 전체 URL, 다른 도메인: 도메인만, HTTPS→HTTP: 전송 안 함
+
+    add_header Permissions-Policy "geolocation=(), camera=(), microphone=()" always;
+    # 브라우저 기능 권한 정책 (GPS, 카메라, 마이크 접근 비허용)
+
+{% if nginx_real_ip_enabled | default(true) %}
+    # -------------------------------------------------------
+    # [Real IP 설정]
+    # LB(HAProxy, ALB) 뒤에 있을 때 실제 클라이언트 IP를 추출
+    # 접근 로그, 차단 규칙, Rate Limit에서 실제 IP 사용 가능
+    # -------------------------------------------------------
+{% for cidr in nginx_real_ip_from %}
+    set_real_ip_from {{ cidr }};     # 이 대역에서 온 요청의 X-Forwarded-For를 신뢰
+{% endfor %}
+    real_ip_header {{ nginx_real_ip_header }};   # 실제 IP가 담긴 헤더
+    real_ip_recursive on;
+    # X-Forwarded-For가 여러 IP인 경우 set_real_ip_from 대역 IP를 제거하고
+    # 가장 오른쪽 신뢰할 수 없는 IP를 실제 IP로 사용
+{% endif %}
+
+{% if nginx_rate_limit_enabled | default(true) %}
+    # -------------------------------------------------------
+    # [Rate Limiting - 요청 속도 제한]
+    # 공유 메모리(zone)에 IP별 요청 횟수를 추적
+    # location 블록에서 limit_req로 사용
+    # -------------------------------------------------------
+{% for zone in nginx_rate_limit_zones %}
+    limit_req_zone {{ zone.key }} zone={{ zone.name }}:{{ zone.size }} rate={{ zone.rate }};
+    # zone: {{ zone.name }} - {{ zone.comment }}
+    # {{ zone.key }} 기준으로 요청 수 추적 ({{ zone.size }} 메모리 = 약 16만 IP)
+    # 속도 제한: {{ zone.rate }}
+{% endfor %}
+    limit_req_status 429;           # 제한 초과 시 응답 코드 (Too Many Requests)
+    limit_conn_status 503;          # 연결 수 초과 시 응답 코드 (Service Unavailable)
+{% endif %}
+
+{% if nginx_gzip_enabled %}
+    # -------------------------------------------------------
+    # [Gzip 압축]
+    # 텍스트 기반 응답을 압축해 전송 데이터 70~80% 절감
+    # CPU 사용이 약간 증가하지만 네트워크 비용 절감이 훨씬 큼
+    # -------------------------------------------------------
+    gzip on;
+    gzip_vary on;
+    # 압축 여부에 따라 "Vary: Accept-Encoding" 헤더 추가
+    # CDN/프록시가 압축/비압축 버전을 별도로 캐시하도록 안내
+
+    gzip_proxied any;
+    # 프록시(LB)를 통해 온 요청도 압축 (Cache-Control 헤더 무관)
+
+    gzip_comp_level {{ nginx_gzip_comp_level | default(6) }};
+    # 압축 레벨 1(빠름/낮은 압축률) ~ 9(느림/높은 압축률)
+    # 6이 CPU 사용과 압축률의 최적 균형점
+
+    gzip_min_length 1024;
+    # 이 바이트 미만의 응답은 압축 안 함 (1KB 미만은 압축 이득보다 오버헤드가 큼)
+
+    gzip_buffers 16 8k;
+    # 압축에 사용할 버퍼 수와 크기 (16개 × 8KB = 128KB)
+
+    gzip_types
+        text/plain                      # 일반 텍스트
+        text/css                        # CSS 스타일시트
+        text/xml                        # XML 문서
+        text/javascript                 # JavaScript (text/ 타입)
+        application/json                # JSON API 응답
+        application/javascript          # JavaScript (application/ 타입)
+        application/xml                 # XML 문서
+        application/rss+xml             # RSS 피드
+        application/atom+xml            # Atom 피드
+        application/x-javascript        # 구형 브라우저 JS 타입
+        image/svg+xml;                  # SVG 벡터 이미지
+    # 주의: image/jpeg, image/png, video/ 등은 이미 압축된 형식이라 제외
+{% endif %}
+
+{% if nginx_upstream_enabled | default(false) %}
+    # -------------------------------------------------------
+    # [Upstream 연결 풀 (앱서버 그룹)]
+    # Nginx가 앱서버로 프록시할 때 TCP 연결을 재사용
+    # 매 요청마다 3-way handshake를 새로 하지 않아 지연 감소
+    # HAProxy 없이 Nginx가 직접 앱서버로 프록시할 때 사용
+    # -------------------------------------------------------
+    upstream {{ nginx_upstream_name }} {
+{% for host in groups['appservers'] %}
+        server {{ hostvars[host]['ansible_host'] }}:{{ app_port | default(8080) }};
+        # 앱서버: {{ host }}
+{% endfor %}
+        keepalive {{ nginx_upstream_keepalive }};
+        # 연결 풀에 유지할 유휴 keepalive 연결 수
+        # 이 수만큼의 연결을 미리 열어두고 요청이 올 때 재사용
+        # 앱서버 스레드 수의 1/4~1/2 정도가 적당
+        # 주의: HTTP/1.1 + "Connection: keep-alive" 헤더도 함께 설정해야 함
+    }
+{% endif %}
+
+    # 가상 호스트 설정 파일 포함
     include /etc/nginx/sites-enabled/*.conf;
+    # sites-enabled/ 디렉토리의 .conf 파일들을 모두 포함
+    # 각 도메인/서비스별 server 블록을 별도 파일로 관리
 }

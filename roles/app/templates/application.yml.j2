@@ -1,59 +1,231 @@
 # =============================================================
-# Spring Boot 애플리케이션 설정 (Ansible 관리)
+# Spring Boot 애플리케이션 설정 (Ansible 관리 - 직접 수정 금지)
 # 환경: {{ environment }} | 호스트: {{ inventory_hostname }}
+# 생성 시각: {{ ansible_date_time.iso8601 }}
 # =============================================================
 
 spring:
   application:
     name: {{ app_name }}
+    # 앱 이름은 Actuator, 로그, Prometheus 메트릭에서 식별자로 사용
+
   profiles:
     active: {{ app_spring_profile }}
+    # dev/staging/prod 중 활성 프로파일 결정
+    # 이 값에 따라 application-{profile}.yml 이 추가로 로드됨
 
+  # -------------------------------------------------------
+  # [데이터소스 (DB 연결)]
+  # -------------------------------------------------------
   datasource:
-    url: jdbc:mariadb://{{ app_db_host }}:{{ app_db_port }}/{{ app_db_name }}?useSSL=false&serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+    url: jdbc:mariadb://{{ app_db_host }}:{{ app_db_port }}/{{ app_db_name }}?useSSL=false&serverTimezone=Asia/Seoul&characterEncoding=UTF-8&useUnicode=true&allowPublicKeyRetrieval=true
+    # useSSL=false: DB 내부 통신은 VPC 내부라 TLS 생략 (외부 연결이면 true로)
+    # serverTimezone: DB와 앱의 타임존 불일치로 인한 날짜 오류 방지
+    # characterEncoding: 한글 저장 시 깨짐 방지
+    # allowPublicKeyRetrieval: MariaDB 8+ 연결 시 필요
     username: {{ app_db_user }}
     password: {{ app_db_password }}
     driver-class-name: org.mariadb.jdbc.Driver
-    hikari:
-      maximum-pool-size: 20
-      minimum-idle: 5
-      connection-timeout: 30000
-      idle-timeout: 600000
 
+    # -------------------------------------------------------
+    # [HikariCP 커넥션 풀]
+    # Spring Boot 기본 포함 - 별도 설치 불필요
+    # DB 연결을 미리 열어두고 재사용해 연결 생성 지연(수십ms) 제거
+    # -------------------------------------------------------
+    hikari:
+      pool-name: "{{ app_name }}-hikari-{{ inventory_hostname }}"
+      # 커넥션 풀 이름 (로그, JMX, 모니터링에서 식별 가능)
+
+      maximum-pool-size: {{ app_hikari_max_pool_size }}
+      # DB 서버에 열어두는 최대 연결 수
+      # ⚠️ 주의: 앱서버 여러 대 × 이 값 = DB max_connections 초과 금지
+      # 예: 앱서버 3대 × 20 = 60 → MariaDB max_connections ≥ 70 (여유 10개)
+
+      minimum-idle: {{ app_hikari_min_idle }}
+      # 항상 유지할 최소 유휴 연결 수
+      # 트래픽이 없어도 이 수만큼 연결을 DB와 유지
+      # maximum-pool-size와 동일하게 설정하면 고정 풀 크기로 운영 (권장)
+
+      connection-timeout: {{ app_hikari_connection_timeout }}
+      # 커넥션 풀이 꽉 찼을 때 빈 연결을 기다리는 최대 시간 (ms)
+      # 30000ms(30초) 초과 시 SQLException: "Unable to acquire connection"
+
+      idle-timeout: {{ app_hikari_idle_timeout }}
+      # 유휴 연결이 풀에서 제거되는 시간 (ms, 10분)
+      # minimum-idle 이하로 내려가지 않음
+      # DB의 wait_timeout보다 짧게 설정해야 "MySQL has gone away" 방지
+
+      max-lifetime: {{ app_hikari_max_lifetime }}
+      # 연결의 최대 생존 시간 (ms, 30분)
+      # 이 시간이 지나면 풀에서 연결을 제거하고 새 연결 생성
+      # DB 서버가 연결을 강제로 끊기 전에 교체해 "Broken pipe" 에러 방지
+
+      connection-test-query: "SELECT 1"
+      # 연결을 빌려주기 전 유효성 검사 쿼리
+      # isValid() 방식보다 명시적이어서 네트워크 문제 조기 감지 가능
+
+      keepalive-time: 300000
+      # 유휴 연결에 keepalive 쿼리(SELECT 1)를 보내는 간격 (ms, 5분)
+      # OS의 tcp_keepalive_time과 함께 사용해 방화벽/LB의 연결 끊김 방지
+
+  # -------------------------------------------------------
+  # [JPA / Hibernate 설정]
+  # -------------------------------------------------------
   jpa:
     hibernate:
       ddl-auto: "{{ 'validate' if environment == 'prod' else 'update' }}"
+      # validate: 엔티티와 DB 스키마 일치 여부만 확인 (prod 필수 - 자동 변경 금지)
+      # update: 변경된 엔티티에 맞게 스키마 자동 수정 (dev/staging에서만)
+      # create-drop: 시작 시 생성, 종료 시 삭제 (테스트 환경)
+      # none: 아무것도 안 함 (Flyway/Liquibase로 직접 관리 시)
+
     show-sql: "{{ 'false' if environment == 'prod' else 'true' }}"
+    # true이면 실행되는 SQL을 콘솔/로그에 출력
+    # prod에서는 성능 저하 + 로그 폭발 위험
+
+    open-in-view: false
+    # LazyLoading을 HTTP 요청 전체 범위로 허용하는 OSIV 패턴 비활성
+    # true이면 영속성 컨텍스트가 뷰 레이어까지 열려 N+1 쿼리 발생 위험
+
     properties:
       hibernate:
         dialect: org.hibernate.dialect.MariaDB103Dialect
-        format_sql: true
+        # MariaDB 10.3 이상에 맞는 SQL 방언 (MariaDB 전용 문법 최적화)
 
+        format_sql: "{{ 'false' if environment == 'prod' else 'true' }}"
+        # show-sql과 함께 사용 시 SQL을 들여쓰기해서 보기 좋게 출력
+
+        default_batch_fetch_size: 100
+        # N+1 문제 완화: 연관 엔티티를 100개씩 IN 쿼리로 묶어 조회
+        # SELECT * FROM orders WHERE id IN (1,2,3,...100) 형태로 변환
+
+        jdbc.batch_size: 50
+        # bulk insert 시 50개씩 묶어서 DB로 전송 (INSERT 속도 향상)
+
+        order_inserts: true
+        order_updates: true
+        # batch_size와 함께 사용해야 효과 있음
+        # 같은 테이블의 INSERT/UPDATE를 묶어서 배치 처리
+
+# -------------------------------------------------------
+# [내장 Tomcat 서버 설정]
+# -------------------------------------------------------
 server:
   port: {{ app_port }}
+  shutdown: graceful
+  # graceful: SIGTERM 수신 후 새 요청 안 받고 기존 요청 처리 완료 후 종료
+  # immediate: SIGTERM 수신 즉시 종료 (처리 중 요청 유실)
+
   tomcat:
     threads:
-      max: 200
-      min-spare: 20
-  compression:
-    enabled: true
+      max: {{ app_tomcat_max_threads }}
+      # 동시 처리 가능한 최대 HTTP 요청 수
+      # 이 값을 초과하면 요청이 accept-count 큐에서 대기
 
+      min-spare: {{ app_tomcat_min_spare_threads }}
+      # 항상 대기 중인 최소 스레드 수 (갑작스러운 트래픽 증가 대비)
+
+    accept-count: {{ app_tomcat_accept_count }}
+    # 모든 스레드가 바쁠 때 TCP 연결이 대기하는 큐 크기
+    # 초과 시 클라이언트는 "Connection refused" 받음
+
+    connection-timeout: {{ app_tomcat_connection_timeout }}
+    # 연결 후 첫 번째 요청 데이터를 받기까지 허용 시간 (ms)
+    # 너무 길면 idle 연결이 쌓여 스레드 낭비
+
+    max-http-form-post-size: 10MB
+    # POST 폼 데이터 최대 크기 (Nginx의 client_max_body_size와 일치시킬 것)
+
+    accesslog:
+      enabled: "{{ 'false' if environment == 'prod' else 'true' }}"
+      # prod에서는 Nginx 액세스 로그를 사용하고 Tomcat 로그는 비활성
+      # (중복 로깅 방지)
+      directory: {{ app_log_dir }}
+      prefix: tomcat_access
+      suffix: .log
+      pattern: "%h %l %u %t \"%r\" %s %b %D"
+      # %D = 처리 시간(ms) - 슬로우 요청 분석에 유용
+
+  compression:
+    enabled: {{ app_tomcat_compression }}
+    # Nginx가 앞에 있으면 Nginx에서 압축하므로 여기서 비활성 권장
+    min-response-size: 2048   # 2KB 이상 응답만 압축
+
+  # 포워드된 헤더 신뢰 설정 (Nginx/HAProxy 뒤에 있을 때)
+  forward-headers-strategy: native
+  # X-Forwarded-For, X-Forwarded-Proto 헤더를 그대로 사용
+  # 실제 클라이언트 IP와 프로토콜(https) 인식에 필요
+
+# -------------------------------------------------------
+# [Spring Boot Actuator (관리 엔드포인트)]
+# 헬스체크, 메트릭 수집, 애플리케이션 정보 제공
+# -------------------------------------------------------
 management:
   server:
     port: {{ app_management_port }}
+    # 앱 포트(8080)와 다른 포트(8081)로 분리
+    # 이유: LB/방화벽에서 관리 포트를 외부에 노출하지 않도록 쉽게 제어
+
   endpoints:
     web:
       exposure:
         include: health,info,metrics,prometheus
+        # health: 헬스체크 (LB가 사용)
+        # info: 앱 버전/빌드 정보
+        # metrics: Micrometer 메트릭
+        # prometheus: Prometheus가 스크레이핑하는 메트릭 형식
+
   endpoint:
     health:
-      show-details: always
+      show-details: "{{ 'always' if environment != 'prod' else 'when-authorized' }}"
+      # always: DB, 디스크, 캐시 등 상세 헬스 정보 표시 (dev 편리)
+      # when-authorized: prod에서는 인증된 요청에만 상세 정보 표시 (보안)
+      probes:
+        enabled: true
+        # Kubernetes liveness/readiness probe 경로 활성화
+        # /actuator/health/liveness, /actuator/health/readiness
 
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+        # Prometheus 형식으로 메트릭 내보내기 활성화
+        # /actuator/prometheus 에서 수집
+
+    tags:
+      application: "{{ app_name }}"
+      environment: "{{ environment }}"
+      instance: "{{ inventory_hostname }}"
+      # 모든 메트릭에 공통 태그 추가 (Grafana 대시보드 필터링에 사용)
+
+# -------------------------------------------------------
+# [로깅 설정]
+# -------------------------------------------------------
 logging:
   level:
     root: "{{ 'WARN' if environment == 'prod' else 'INFO' }}"
+    # prod: WARN 이상만 기록 (에러, 경고) - 로그 볼륨 최소화
+    # dev: INFO 이상 (일반 실행 흐름 포함)
+
     com.example: "{{ 'INFO' if environment == 'prod' else 'DEBUG' }}"
+    # 우리 앱 패키지는 prod에서도 INFO 유지 (앱 동작 추적 가능)
+
+    org.hibernate.SQL: "{{ 'WARN' if environment == 'prod' else 'DEBUG' }}"
+    # Hibernate가 실행하는 SQL 출력 (dev에서만 DEBUG)
+
+    org.springframework.web: "{{ 'WARN' if environment == 'prod' else 'INFO' }}"
+    # Spring MVC 요청 처리 로그
+
+    com.zaxxer.hikari: "{{ 'WARN' if environment == 'prod' else 'INFO' }}"
+    # HikariCP 커넥션 풀 상태 로그 (커넥션 부족 진단 시 DEBUG로 변경)
+
   file:
     name: {{ app_log_dir }}/app.log
-    max-size: 100MB
+    max-size: 100MB          # 파일 하나가 100MB를 넘으면 새 파일로 전환
     max-history: {{ log_retention_days }}
+    # 이 일수만큼의 로그 파일 보관 후 삭제 (prod: 90일, dev: 30일)
+
+  pattern:
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    # 형식: 날짜시각 [스레드명] 로그레벨 로거명 - 메시지
+    # [http-nio-8080-exec-1] 같은 스레드명으로 요청 추적 가능

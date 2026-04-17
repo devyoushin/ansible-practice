@@ -1,0 +1,47 @@
+# =============================================================
+# Tomcat 로그 로테이션 설정 (Ansible 관리 - 직접 수정 금지)
+# 파일 위치: /etc/logrotate.d/tomcat
+# =============================================================
+
+# Catalina 로그 (Tomcat 내부 로그, System.out/err 출력)
+{{ tomcat_log_dir }}/catalina.out {
+    daily
+    rotate {{ tomcat_log_rotate_days }}
+    missingok
+    notifempty
+    compress
+    delaycompress
+    dateext
+    dateformat -%Y%m%d
+    copytruncate
+    # copytruncate: Tomcat이 catalina.out 파일을 계속 열어두므로
+    #               파일을 복사한 후 원본을 0바이트로 자름
+    # 단점: truncate 순간 아주 짧은 시간의 로그 유실 가능 (허용 범위)
+    size 100M
+    # 날짜가 안 바뀌어도 100MB 초과 시 로테이션
+    # catalina.out은 모든 출력이 집중되어 빠르게 커질 수 있음
+}
+
+# 액세스 로그
+{{ tomcat_log_dir }}/access_log*.txt {
+    daily
+    rotate {{ tomcat_log_rotate_days }}
+    missingok
+    notifempty
+    compress
+    delaycompress
+    dateext
+    dateformat -%Y%m%d
+    # Tomcat의 AccessLogValve가 자체적으로 날짜별 파일을 만들므로
+    # logrotate는 압축과 삭제만 담당
+}
+
+# GC 로그 (JVM GC 분석용)
+{{ tomcat_log_dir }}/gc*.log {
+    monthly
+    # GC 로그는 변경이 적으므로 월별 로테이션
+    rotate 3
+    missingok
+    compress
+    dateext
+}

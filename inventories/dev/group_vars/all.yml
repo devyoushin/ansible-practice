@@ -1,41 +1,23 @@
 # =============================================================
 # 개발(dev) 환경 공통 변수
-# terraform-ec2의 envs/dev/variables.tf + terraform.tfvars 역할
 # =============================================================
 
-# ----------------------------
-# 프로젝트 공통 태그 (Terraform locals.tags 와 동일한 개념)
-# ----------------------------
+---
 project: "ansible-practice"
 environment: "dev"
 owner: "sunny"
 managed_by: "ansible"
 
-# ----------------------------
-# AWS 리전
-# ----------------------------
 aws_region: "ap-northeast-2"
-
-# ----------------------------
-# 네트워크 설정 (terraform-vpc 참고)
-# ----------------------------
 vpc_cidr: "10.20.0.0/16"
 
-# ----------------------------
-# NTP 서버 설정
-# ----------------------------
 ntp_servers:
-  - "169.254.169.123"   # AWS Time Sync Service
+  - "169.254.169.123"
   - "time.google.com"
 
-# ----------------------------
-# 타임존 설정
-# ----------------------------
 timezone: "Asia/Seoul"
 
-# ----------------------------
-# 공통 패키지 목록
-# ----------------------------
+# dev는 디버깅 도구 포함 (telnet 등 추가)
 common_packages:
   - vim
   - curl
@@ -44,17 +26,31 @@ common_packages:
   - git
   - htop
   - net-tools
-  - telnet
+  - telnet        # 포트 연결 테스트 (prod에서는 보안상 제외)
+  - lsof
+  - sysstat
 
-# ----------------------------
-# 보안 설정
-# ----------------------------
 ssh_port: 22
 ssh_allow_users: "ec2-user"
 ssh_password_authentication: "no"
 ssh_permit_root_login: "no"
+ssh_max_auth_tries: 5           # dev는 좀 더 여유 있게
+ssh_client_alive_interval: 600
+ssh_client_alive_count_max: 3
 
-# ----------------------------
-# 로그 보관 기간 (일)
-# ----------------------------
-log_retention_days: 30
+log_retention_days: 30          # dev는 30일만 보관
+
+disable_thp: true               # dev도 THP 비활성화 (Redis 등 테스트 환경)
+
+# dev sysctl은 기본값(common defaults) + 최소한만 설정
+sysctl_settings:
+  - name: "net.core.somaxconn"
+    value: "65535"
+  - name: "net.ipv4.tcp_max_syn_backlog"
+    value: "65535"
+  - name: "fs.file-max"
+    value: "65536"
+  - name: "vm.swappiness"
+    value: "10"
+  - name: "kernel.pid_max"
+    value: "65536"

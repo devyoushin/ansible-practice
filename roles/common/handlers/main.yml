@@ -1,5 +1,7 @@
 # =============================================================
 # common 롤 핸들러 정의
+# 핸들러는 태스크의 notify: 로 호출될 때만 실행됨
+# 같은 핸들러가 여러 번 notify 되어도 play 끝에 한 번만 실행 (중복 제거)
 # =============================================================
 
 ---
@@ -7,8 +9,16 @@
   ansible.builtin.service:
     name: chronyd
     state: restarted
+  # chrony.conf 변경 시 재시작 → 새 NTP 서버로 동기화 시작
 
 - name: timedatectl 상태 확인
   ansible.builtin.command: timedatectl status
   register: timedatectl_output
+  changed_when: false
+  # 타임존 설정 후 실제 적용 여부 확인 (로그에 출력됨)
+
+- name: sysctl 적용
+  ansible.builtin.command: sysctl --system
+  # /etc/sysctl.d/ 디렉토리의 모든 파일을 읽어 커널에 적용
+  # 재부팅 없이 즉시 반영
   changed_when: false

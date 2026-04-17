@@ -1,0 +1,9 @@
+# =============================================================
+# 커널 파라미터 설정 (Ansible 관리 - 직접 수정 금지)
+# 호스트: {{ inventory_hostname }} | 환경: {{ environment }}
+# 적용 명령: sysctl --system
+# =============================================================
+
+{% for item in sysctl_settings %}
+{{ item.name }} = {{ item.value }}
+{% endfor %}

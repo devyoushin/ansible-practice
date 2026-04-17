@@ -1,85 +1,360 @@
 # =============================================================
-# Prometheus 알림 규칙 (Ansible 관리)
+# Prometheus 알림 규칙 (Ansible 관리 - 직접 수정 금지)
 # 환경: {{ environment }}
+#
+# 규칙 로드 확인: curl http://localhost:9090/api/v1/rules
+# 현재 발화 중인 알림: curl http://localhost:9090/api/v1/alerts
+# 규칙 문법 검사: promtool check rules /etc/prometheus/rules/*.yml
 # =============================================================
 
 groups:
+  # =============================================================
+  # [인프라 기본 알림]
+  # =============================================================
   - name: infrastructure
+    # interval: 15s  # 기본 evaluation_interval 사용 (생략 가능)
     rules:
-      # ----------------------------
+      # -------------------------------------------------------
       # 서버 다운 감지
-      # ----------------------------
+      # -------------------------------------------------------
       - alert: InstanceDown
         expr: up == 0
+        # up 메트릭: Prometheus가 스크레이핑에 성공하면 1, 실패하면 0
+        # 서버 자체가 다운되거나 Node Exporter가 죽었을 때 0이 됨
         for: 1m
+        # 1분 이상 지속되어야 알림 발화 (순간적인 네트워크 이슈 필터)
         labels:
           severity: critical
         annotations:
-          summary: "서버 다운: {{ '{{' }} $labels.instance {{ '}}' }}"
-          description: "{{ '{{' }} $labels.instance {{ '}}' }}이 1분 이상 응답 없음"
+          summary: "서버 응답 없음: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            {{ '{{' }} $labels.instance {{ '}}' }} (job: {{ '{{' }} $labels.job {{ '}}' }})가
+            1분 이상 메트릭 수집에 응답하지 않습니다.
+            Node Exporter 상태 확인: systemctl status node_exporter
+          runbook_url: "https://wiki.example.com/runbook/instance-down"
 
-      # ----------------------------
-      # CPU 사용률
-      # ----------------------------
+      # -------------------------------------------------------
+      # CPU 사용률 경고
+      # -------------------------------------------------------
       - alert: HighCpuUsage
         expr: |
-          100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > {{ alert_cpu_threshold }}
+          (100 - (avg by (instance, job) (
+            rate(node_cpu_seconds_total{mode="idle"}[5m])
+          ) * 100)) > {{ alert_cpu_threshold }}
+        # node_cpu_seconds_total{mode="idle"}: CPU가 idle 상태로 보낸 시간
+        # 5분 평균으로 순간 스파이크 필터
+        # 100 - idle% = CPU 사용률%
         for: {{ alert_duration }}
         labels:
           severity: warning
         annotations:
-          summary: "높은 CPU 사용률: {{ '{{' }} $labels.instance {{ '}}' }}"
-          description: "CPU 사용률 {{ '{{' }} $value | printf \"%.1f\" {{ '}}' }}% (임계값: {{ alert_cpu_threshold }}%)"
+          summary: "CPU 과부하: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            CPU 사용률: {{ '{{' }} $value | printf "%.1f" {{ '}}' }}% (임계값: {{ alert_cpu_threshold }}%)
+            5분 이상 지속 중.
+            확인 명령: top, htop, sar -u 1 10
 
-      # ----------------------------
-      # 메모리 사용률
-      # ----------------------------
+      # CPU 임계값 훨씬 초과 시 critical
+      - alert: CriticalCpuUsage
+        expr: |
+          (100 - (avg by (instance, job) (
+            rate(node_cpu_seconds_total{mode="idle"}[5m])
+          ) * 100)) > 95
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "CPU 심각한 과부하: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: "CPU 사용률 {{ '{{' }} $value | printf \"%.1f\" {{ '}}' }}% (95% 초과 2분 지속)"
+
+      # -------------------------------------------------------
+      # 메모리 사용률 경고
+      # -------------------------------------------------------
       - alert: HighMemoryUsage
         expr: |
-          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > {{ alert_memory_threshold }}
+          (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+          > {{ alert_memory_threshold }}
+        # node_memory_MemAvailable_bytes: 실제로 사용 가능한 메모리
+        #   (free + buffers + cached - 반납 불가 부분)
+        # MemFree가 아닌 MemAvailable을 사용해야 정확함
+        #   (Linux는 캐시/버퍼에 여유 메모리를 사용하므로 MemFree는 항상 낮음)
         for: {{ alert_duration }}
         labels:
           severity: warning
         annotations:
-          summary: "높은 메모리 사용률: {{ '{{' }} $labels.instance {{ '}}' }}"
-          description: "메모리 사용률 {{ '{{' }} $value | printf \"%.1f\" {{ '}}' }}%"
+          summary: "메모리 부족: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            메모리 사용률: {{ '{{' }} $value | printf "%.1f" {{ '}}' }}% (임계값: {{ alert_memory_threshold }}%)
+            가용 메모리: {{ '{{' }} with query "node_memory_MemAvailable_bytes{instance='%%s'}" | first {{ '}}' }}{{ '{{' }} .Value | humanize1024 {{ '}}' }}B{{ '{{' }} end {{ '}}' }}
+            확인 명령: free -h, vmstat 1 5
 
-      # ----------------------------
-      # 디스크 사용률
-      # ----------------------------
+      # -------------------------------------------------------
+      # 디스크 사용률 경고
+      # -------------------------------------------------------
       - alert: HighDiskUsage
         expr: |
-          (1 - node_filesystem_avail_bytes{fstype!~"tmpfs|devtmpfs"} / node_filesystem_size_bytes) * 100 > {{ alert_disk_threshold }}
+          (1 - node_filesystem_avail_bytes{
+            fstype!~"tmpfs|devtmpfs|squashfs|overlay"
+          } / node_filesystem_size_bytes) * 100
+          > {{ alert_disk_threshold }}
+        # fstype 제외: tmpfs(메모리 파일시스템), devtmpfs(장치 파일),
+        #              squashfs(스냅 패키지), overlay(컨테이너)
+        # 이런 파일시스템은 실제 디스크가 아니므로 제외
         for: {{ alert_duration }}
         labels:
           severity: warning
         annotations:
           summary: "디스크 공간 부족: {{ '{{' }} $labels.instance {{ '}}' }}"
-          description: "{{ '{{' }} $labels.mountpoint {{ '}}' }} 사용률 {{ '{{' }} $value | printf \"%.1f\" {{ '}}' }}%"
+          description: |
+            마운트 포인트: {{ '{{' }} $labels.mountpoint {{ '}}' }}
+            디스크 사용률: {{ '{{' }} $value | printf "%.1f" {{ '}}' }}% (임계값: {{ alert_disk_threshold }}%)
+            확인 명령: df -h, du -sh /* | sort -rh | head -20
 
+      - alert: CriticalDiskUsage
+        expr: |
+          (1 - node_filesystem_avail_bytes{
+            fstype!~"tmpfs|devtmpfs|squashfs|overlay"
+          } / node_filesystem_size_bytes) * 100
+          > {{ alert_disk_critical_threshold | default(95) }}
+        for: 1m    # 긴급이므로 1분만 지속돼도 발화
+        labels:
+          severity: critical
+        annotations:
+          summary: "디스크 용량 위기: {{ '{{' }} $labels.instance {{ '}}' }}:{{ '{{' }} $labels.mountpoint {{ '}}' }}"
+          description: "디스크 사용률 {{ '{{' }} $value | printf \"%.1f\" {{ '}}' }}% - 즉시 조치 필요"
+
+      # -------------------------------------------------------
+      # 디스크 I/O 포화도
+      # -------------------------------------------------------
+      - alert: HighDiskIOUtilization
+        expr: |
+          rate(node_disk_io_time_seconds_total[5m]) * 100 > 90
+        # node_disk_io_time_seconds_total: 디스크 I/O가 처리 중인 시간 누적
+        # 5분 rate로 I/O 사용률% 계산 (100% = 완전 포화)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "디스크 I/O 과부하: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            디스크: {{ '{{' }} $labels.device {{ '}}' }}
+            I/O 사용률: {{ '{{' }} $value | printf "%.1f" {{ '}}' }}%
+            확인 명령: iostat -x 1 5, iotop
+
+      # -------------------------------------------------------
+      # 시스템 로드 경고 (CPU 코어 수 대비)
+      # -------------------------------------------------------
+      - alert: HighSystemLoad
+        expr: |
+          node_load1 / on(instance) count by(instance) (node_cpu_seconds_total{mode="idle"})
+          > {{ alert_load_threshold | default(2.0) }}
+        # node_load1: 1분 평균 실행 대기 프로세스 수
+        # CPU 코어 수로 나눠서 정규화 (코어 수 관계없이 비율 비교)
+        # 1.0 = 코어 수만큼 작업 대기 = 포화 상태
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "시스템 로드 높음: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            정규화된 로드: {{ '{{' }} $value | printf "%.2f" {{ '}}' }} (임계값: {{ alert_load_threshold | default(2.0) }})
+            확인 명령: uptime, ps aux --sort=-%cpu | head -10
+
+      # -------------------------------------------------------
+      # Swap 사용 경고
+      # Swap 사용 = 메모리 부족 시작 신호 (성능 급저하 전조)
+      # -------------------------------------------------------
+      - alert: SwapUsageHigh
+        expr: |
+          (1 - node_memory_SwapFree_bytes / node_memory_SwapTotal_bytes) * 100
+          > {{ alert_swap_threshold | default(50) }}
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Swap 사용 과다: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            Swap 사용률: {{ '{{' }} $value | printf "%.1f" {{ '}}' }}%
+            Swap 사용 = 메모리 부족으로 디스크를 메모리처럼 사용 중 (성능 저하)
+            확인 명령: free -h, vmstat 1 5, swapon -s
+
+      # -------------------------------------------------------
+      # 네트워크 에러 경고
+      # -------------------------------------------------------
+      - alert: NetworkErrors
+        expr: |
+          rate(node_network_receive_errs_total[5m]) + rate(node_network_transmit_errs_total[5m]) > 5
+        # 5분간 수신+송신 에러가 초당 5개 이상
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "네트워크 에러 발생: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            인터페이스: {{ '{{' }} $labels.device {{ '}}' }}
+            에러율: {{ '{{' }} $value | printf "%.2f" {{ '}}' }}개/초
+            확인 명령: ip -s link, ethtool eth0
+
+  # =============================================================
+  # [애플리케이션 알림]
+  # =============================================================
   - name: application
     rules:
-      # ----------------------------
-      # Spring Boot 앱 응답 없음
-      # ----------------------------
+      # -------------------------------------------------------
+      # Spring Boot 앱 다운
+      # -------------------------------------------------------
       - alert: AppDown
         expr: up{job="spring_boot"} == 0
+        # job="spring_boot": Prometheus 설정에서 앱 메트릭 수집 job 이름
         for: 2m
         labels:
           severity: critical
         annotations:
-          summary: "앱 다운: {{ '{{' }} $labels.instance {{ '}}' }}"
+          summary: "앱 서버 다운: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            Spring Boot 앱이 2분 이상 응답하지 않습니다.
+            확인 명령:
+              systemctl status myapp
+              journalctl -u myapp --since "5 minutes ago"
+              curl http://{{ '{{' }} $labels.instance {{ '}}' }}/actuator/health
 
-      # ----------------------------
-      # HTTP 5xx 에러율
-      # ----------------------------
+      # -------------------------------------------------------
+      # HTTP 5xx 에러율 경고
+      # -------------------------------------------------------
       - alert: HighErrorRate
         expr: |
-          rate(http_server_requests_seconds_count{status=~"5.."}[5m]) /
-          rate(http_server_requests_seconds_count[5m]) > 0.05
+          (
+            rate(http_server_requests_seconds_count{status=~"5.."}[5m])
+            /
+            rate(http_server_requests_seconds_count[5m])
+          ) > 0.05
+        # 5xx 응답 비율이 전체 응답의 5% 초과
+        # rate: 5분간 초당 평균 요청 수
         for: 2m
         labels:
           severity: warning
         annotations:
-          summary: "높은 5xx 에러율"
-          description: "에러율 {{ '{{' }} $value | printf \"%.1%\" {{ '}}' }}"
+          summary: "높은 5xx 에러율: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            에러율: {{ '{{' }} $value | humanizePercentage {{ '}}' }}
+            URI: {{ '{{' }} $labels.uri {{ '}}' }}
+            확인 명령: tail -f /var/log/myapp/app.log | grep ERROR
+
+      # -------------------------------------------------------
+      # API 응답 시간 지연
+      # -------------------------------------------------------
+      - alert: SlowApiResponse
+        expr: |
+          histogram_quantile(0.95,
+            rate(http_server_requests_seconds_bucket[5m])
+          ) > 2
+        # 95번째 백분위수(P95) 응답 시간이 2초 초과
+        # P95: 100개 요청 중 95번째로 빠른 요청의 응답 시간
+        # 이 값이 높다 = 95%의 요청이 2초 이내에 끝나지 않는다
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API 응답 지연: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            P95 응답 시간: {{ '{{' }} $value | printf "%.2f" {{ '}}' }}초 (임계값: 2초)
+            느린 API: {{ '{{' }} $labels.uri {{ '}}' }}
+            확인 방법: Prometheus에서 상세 URI별 분석
+            http://localhost:9090/graph?g0.expr=histogram_quantile(0.95,rate(http_server_requests_seconds_bucket[5m]))
+
+      # -------------------------------------------------------
+      # JVM 힙 메모리 사용률 경고
+      # -------------------------------------------------------
+      - alert: JvmHeapUsageHigh
+        expr: |
+          (jvm_memory_used_bytes{area="heap"} / jvm_memory_max_bytes{area="heap"}) * 100
+          > 85
+        # JVM 힙의 85% 이상 사용 중 = GC 부하 증가, OOM 위험 신호
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM 힙 메모리 부족: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            힙 사용률: {{ '{{' }} $value | printf "%.1f" {{ '}}' }}%
+            GC가 빈번히 실행되거나 메모리 릭이 있을 수 있습니다.
+            확인 방법:
+              - GC 로그: /var/log/myapp/gc.log
+              - 힙 덤프: jmap -dump:format=b,file=/tmp/heap.hprof PID
+
+      # -------------------------------------------------------
+      # JVM GC 정지 시간 경고
+      # -------------------------------------------------------
+      - alert: JvmGcPauseHigh
+        expr: |
+          rate(jvm_gc_pause_seconds_sum[5m]) / rate(jvm_gc_pause_seconds_count[5m]) > 0.5
+        # 평균 GC 정지 시간이 500ms 초과
+        # GC 중에는 앱이 완전히 멈춤 (Stop-The-World)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "JVM GC 정지 시간 길어짐: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            평균 GC 정지 시간: {{ '{{' }} $value | printf "%.3f" {{ '}}' }}초
+            GC 튜닝 또는 힙 메모리 증가 필요
+            확인 방법: GC 로그 분석 (GCViewer, GCEasy.io 도구 사용)
+
+      # -------------------------------------------------------
+      # DB 커넥션 풀 고갈 경고
+      # -------------------------------------------------------
+      - alert: HikariConnectionPoolExhausted
+        expr: |
+          hikaricp_connections_pending > 5
+        # 커넥션 풀에서 연결 대기 중인 스레드 수
+        # 대기 발생 = 풀이 꽉 찼다는 신호 (max-pool-size 증가 또는 쿼리 최적화 필요)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DB 커넥션 풀 대기: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            대기 중인 스레드: {{ '{{' }} $value {{ '}}' }}개
+            pool 현황:
+              - 활성 연결: {{ '{{' }} with query "hikaricp_connections_active{instance='%%s'}" | first {{ '}}' }}{{ '{{' }} .Value {{ '}}' }}{{ '{{' }} end {{ '}}' }}
+              - 최대 연결: {{ '{{' }} with query "hikaricp_connections_max{instance='%%s'}" | first {{ '}}' }}{{ '{{' }} .Value {{ '}}' }}{{ '{{' }} end {{ '}}' }}
+            해결 방법: hikari maximum-pool-size 증가 또는 슬로우 쿼리 최적화
+
+  # =============================================================
+  # [MariaDB 알림]
+  # =============================================================
+  - name: database
+    rules:
+      # -------------------------------------------------------
+      # MariaDB 연결 수 경고
+      # -------------------------------------------------------
+      - alert: MariaDbConnectionsHigh
+        expr: |
+          mysql_global_status_threads_connected / mysql_global_variables_max_connections * 100 > 80
+        # 현재 연결 수가 max_connections의 80% 초과
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "MariaDB 연결 수 위험: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            현재 연결: {{ '{{' }} $value | printf "%.0f" {{ '}}' }}%
+            확인: SHOW STATUS LIKE 'Threads_connected';
+            SHOW VARIABLES LIKE 'max_connections';
+
+      # -------------------------------------------------------
+      # MariaDB 슬로우 쿼리 증가
+      # -------------------------------------------------------
+      - alert: MariaDbSlowQueriesIncreasing
+        expr: |
+          rate(mysql_global_status_slow_queries[5m]) > 0.5
+        # 초당 0.5개 이상의 슬로우 쿼리 발생 = 분당 30개
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "슬로우 쿼리 증가: {{ '{{' }} $labels.instance {{ '}}' }}"
+          description: |
+            슬로우 쿼리 발생률: {{ '{{' }} $value | printf "%.2f" {{ '}}' }}개/초
+            슬로우 쿼리 로그: /var/log/mariadb/slow.log
+            분석 도구: pt-query-digest /var/log/mariadb/slow.log

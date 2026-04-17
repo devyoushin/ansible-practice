@@ -1,0 +1,67 @@
+# =============================================================
+# Tomcat systemd 서비스 (Ansible 관리 - 직접 수정 금지)
+# 호스트: {{ inventory_hostname }} | 환경: {{ environment }}
+# =============================================================
+
+[Unit]
+Description=Apache Tomcat {{ tomcat_version }} Web Application Server ({{ environment }})
+After=network.target mariadb.service
+# 네트워크와 DB가 올라온 후에 Tomcat 시작
+
+[Service]
+Type=forking
+# forking: catalina.sh start는 Tomcat을 백그라운드로 시작하고 종료
+#          PID 파일로 실제 Tomcat 프로세스를 추적
+# (Spring Boot JAR 방식은 simple, WAR+Tomcat은 forking)
+
+User={{ tomcat_user }}
+Group={{ tomcat_group }}
+
+Environment="JAVA_HOME={{ tomcat_java_home }}"
+Environment="CATALINA_HOME={{ tomcat_symlink }}"
+Environment="CATALINA_BASE={{ tomcat_symlink }}"
+Environment="CATALINA_PID={{ tomcat_home }}/tomcat.pid"
+
+ExecStart={{ tomcat_symlink }}/bin/startup.sh
+# catalina.sh start를 호출하는 래퍼 스크립트
+
+ExecStop={{ tomcat_symlink }}/bin/shutdown.sh -force
+# catalina.sh stop 호출 (-force: 타임아웃 후 강제 종료)
+# SIGTERM → TimeoutStopSec 대기 → SIGKILL
+
+PIDFile={{ tomcat_home }}/tomcat.pid
+# systemd가 Tomcat 메인 프로세스를 추적하는 PID 파일
+
+# -------------------------------------------------------
+# [재시작 정책]
+# -------------------------------------------------------
+Restart=on-failure
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=3
+
+# -------------------------------------------------------
+# [타임아웃]
+# -------------------------------------------------------
+TimeoutStartSec=120
+# Tomcat 시작 + WAR 배포 + 초기화에 시간이 걸림 (2분)
+
+TimeoutStopSec=30
+# Graceful Shutdown: 처리 중인 요청 완료 대기 (30초)
+
+# -------------------------------------------------------
+# [보안]
+# -------------------------------------------------------
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectHome=yes
+
+# -------------------------------------------------------
+# [로그]
+# -------------------------------------------------------
+# Tomcat은 catalina.out에 직접 로그를 씀 (StandardOutput 설정 불필요)
+# catalina.out 위치: {{ tomcat_log_dir }}/catalina.out
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tomcat server.xml (Ansible 관리 - 직접 수정 금지)
+  호스트: {{ inventory_hostname }} | 환경: {{ environment }}
+  생성 시각: {{ ansible_date_time.iso8601 }}
+
+  구조:
+  Server (Tomcat 프로세스 전체)
+    └── Service (Connector 그룹)
+          ├── Connector (네트워크 포트 리스너)
+          └── Engine (요청 처리 엔진)
+                └── Host (가상 호스트)
+                      └── Context (웹 앱 컨텍스트)
+-->
+
+<Server port="{{ tomcat_shutdown_port }}" shutdown="SHUTDOWN">
+  <!--
+    shutdown 포트: telnet localhost 8005 후 "SHUTDOWN" 문자열 전송 시 종료
+    보안 위험: 외부에서 TCP로 종료 가능 → -1로 설정해 비활성화 권장
+    대신 systemctl stop tomcat 으로 종료
+  -->
+
+  <!-- Tomcat 내장 리스너 -->
+  <Listener className="org.apache.catalina.startup.VersionLoggerListener"/>
+  <!-- Tomcat 시작 시 버전 정보를 로그에 기록 -->
+
+  <Listener className="org.apache.catalina.core.AprLifecycleListener" SSLEngine="on"/>
+  <!-- APR(Apache Portable Runtime) 네이티브 라이브러리 로드
+       설치되어 있으면 성능 향상 (OpenSSL 기반 SSL, sendfile 등) -->
+
+  <Listener className="org.apache.catalina.core.JreMemoryLeakPreventionListener"/>
+  <!-- JVM 메모리 릭 방지 (JDBC 드라이버, XML 파서 등이 클래스로더 릭 유발 방지) -->
+
+  <Listener className="org.apache.catalina.mbeans.GlobalResourcesLifecycleListener"/>
+  <Listener className="org.apache.catalina.core.ThreadLocalLeakPreventionListener"/>
+  <!-- ThreadLocal 변수 릭 방지 (웹 앱 리로드 시 스레드 풀이 이전 클래스로더 참조 방지) -->
+
+  <!-- 전역 JNDI 리소스 (DB 연결 풀 등을 JNDI로 관리할 경우) -->
+  <GlobalNamingResources>
+    <Resource name="UserDatabase"
+              auth="Container"
+              type="org.apache.catalina.UserDatabase"
+              description="User database that can be updated and saved"
+              factory="org.apache.catalina.users.MemoryUserDatabaseFactory"
+              pathname="conf/tomcat-users.xml"/>
+    <!-- tomcat-users.xml: Manager 앱 인증에 사용 (Manager 앱을 제거했으면 불필요) -->
+  </GlobalNamingResources>
+
+  <Service name="Catalina">
+    <!--
+      Service: Connector들과 Engine을 묶는 논리적 그룹
+      여러 Service를 만들어 포트별로 다른 앱을 서빙할 수 있음
+    -->
+
+{% if tomcat_executor_enabled %}
+    <!-- =====================================================
+         공유 스레드 풀 (Executor)
+         여러 커넥터가 스레드 풀을 공유해 리소스 효율화
+         ===================================================== -->
+    <Executor name="{{ tomcat_executor_name }}"
+              namePrefix="http-nio-"
+              maxThreads="{{ tomcat_executor_max_threads }}"
+              minSpareThreads="{{ tomcat_executor_min_spare_threads }}"
+              maxIdleTime="60000"
+              prestartminSpareThreads="true"/>
+    <!--
+      namePrefix: 스레드 이름 접두사 (스레드 덤프에서 Tomcat 스레드 식별)
+      maxIdleTime: 유휴 스레드가 60초 후 제거 (minSpareThreads 이하로 줄지 않음)
+      prestartminSpareThreads: 시작 시 minSpareThreads 만큼 스레드를 미리 생성
+    -->
+{% endif %}
+
+    <!-- =====================================================
+         HTTP 커넥터 (NIO - Non-blocking I/O)
+         클라이언트(또는 Nginx)와의 HTTP 통신 처리
+         ===================================================== -->
+    <Connector
+{% if tomcat_executor_enabled %}
+               executor="{{ tomcat_executor_name }}"
+{% endif %}
+               port="{{ tomcat_http_port }}"
+               protocol="org.apache.coyote.http11.Http11NioProtocol"
+               <!--
+                 NIO: 비동기 I/O로 소켓 처리 (Java NIO 기반)
+                 BIO(구형): 연결당 스레드 1개 (비효율)
+                 NIO: 적은 스레드로 많은 연결 처리 (권장)
+                 NIO2/APR: NIO보다 성능 향상 (네이티브 라이브러리 필요)
+               -->
+               connectionTimeout="{{ tomcat_connection_timeout }}"
+               keepAliveTimeout="{{ tomcat_keep_alive_timeout }}"
+               maxKeepAliveRequests="{{ tomcat_max_keep_alive_requests }}"
+
+{% if not tomcat_executor_enabled %}
+               maxThreads="{{ tomcat_max_threads }}"
+               minSpareThreads="{{ tomcat_min_spare_threads }}"
+               acceptCount="{{ tomcat_accept_count }}"
+{% endif %}
+
+               compression="{{ tomcat_compression }}"
+               compressionMinSize="{{ tomcat_compression_min_size }}"
+               compressibleMimeType="text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json"
+
+               URIEncoding="UTF-8"
+               <!-- 요청 URI의 인코딩 방식 (한글 파라미터 깨짐 방지) -->
+
+               maxHttpHeaderSize="16384"
+               <!-- 요청 헤더 최대 크기 (16KB) - JWT 토큰이 크면 늘려야 함 -->
+
+               server="Apache"
+               <!-- Server 응답 헤더 값 - Tomcat 버전 숨기기 (보안) -->
+
+               redirectPort="{{ tomcat_https_port }}"/>
+               <!-- HTTP 요청이 HTTPS를 필요로 할 때 리다이렉트할 포트 -->
+
+    <!-- =====================================================
+         AJP 커넥터 (Apache HTTP Server와 연동 시 사용)
+         Nginx 환경에서는 사용하지 않으므로 비활성화
+         CVE-2020-1938 (Ghostcat) 취약점으로 기본 비활성화
+         ===================================================== -->
+    <!-- AJP 커넥터는 보안상 비활성화 (Nginx 환경에서 불필요)
+    <Connector protocol="AJP/1.3"
+               address="127.0.0.1"
+               port="8009"
+               redirectPort="{{ tomcat_https_port }}"
+               secretRequired="true"
+               secret="AJP_SECRET_CHANGE_ME"/>
+    -->
+
+    <!-- =====================================================
+         Engine: 요청을 처리하는 핵심 컴포넌트
+         요청을 받아 적절한 Host(가상 호스트)로 라우팅
+         ===================================================== -->
+    <Engine name="Catalina" defaultHost="localhost">
+
+      <Realm className="org.apache.catalina.realm.LockOutRealm">
+        <!-- 잘못된 비밀번호를 연속 5번 입력하면 5분간 잠금 (브루트포스 방어) -->
+        <Realm className="org.apache.catalina.realm.UserDatabaseRealm"
+               resourceName="UserDatabase"/>
+      </Realm>
+
+      <!-- ===================================================
+           Host: 가상 호스트 설정
+           appBase: WAR 파일을 놓는 디렉토리 (기본: webapps/)
+           ================================================= -->
+      <Host name="localhost"
+            appBase="{{ tomcat_home }}/webapps"
+            unpackWARs="true"
+            <!-- true: WAR 파일을 자동으로 압축 해제해 디렉토리로 배포 -->
+            autoDeploy="{{ tomcat_auto_deploy | lower }}"
+            <!-- true: webapps/에 파일이 생기면 자동 배포 (개발 편의) -->
+            <!-- false: 명시적으로 배포해야 함 (운영 권장) -->
+            deployOnStartup="true">
+            <!-- 시작 시 webapps/ 의 앱들을 자동 배포 -->
+
+        <!-- Access Log (요청 로그) -->
+        <Valve className="org.apache.catalina.valves.AccessLogValve"
+               directory="{{ tomcat_log_dir }}"
+               prefix="access_log"
+               suffix=".txt"
+               pattern="{{ tomcat_access_log_pattern }}"
+               rotatable="true"
+               fileDateFormat=".yyyy-MM-dd"
+               encoding="UTF-8"/>
+        <!--
+          rotatable="true": 날짜가 바뀌면 새 파일 생성
+          fileDateFormat: access_log.2024-01-15.txt 형식
+          pattern의 %D: 처리 시간(ms) - 슬로우 요청 추적에 유용
+        -->
+
+        <!-- Remote IP Valve: Nginx 뒤에서 실제 클라이언트 IP 추출 -->
+        <Valve className="org.apache.catalina.valves.RemoteIpValve"
+               remoteIpHeader="X-Forwarded-For"
+               protocolHeader="X-Forwarded-Proto"
+               internalProxies="10\.\d+\.\d+\.\d+|127\.0\.0\.1"/>
+        <!--
+          X-Forwarded-For: Nginx가 설정한 실제 클라이언트 IP
+          internalProxies: 신뢰하는 내부 프록시 IP 패턴 (VPC 내부)
+          이 Valve가 없으면 request.getRemoteAddr() 가 Nginx IP를 반환
+        -->
+
+        <!-- Error Report Valve: 에러 페이지에서 서버 정보 제거 -->
+        <Valve className="org.apache.catalina.valves.ErrorReportValve"
+               showReport="false"
+               showServerInfo="false"/>
+        <!--
+          showReport="false": 에러 스택 트레이스를 외부에 노출하지 않음
+          showServerInfo="false": Tomcat 버전 정보 에러 페이지에서 제거
+        -->
+
+      </Host>
+    </Engine>
+  </Service>
+</Server>

@@ -1,13 +1,70 @@
-# Nginx 로그 로테이션 설정
+# =============================================================
+# Nginx 로그 로테이션 설정 (Ansible 관리 - 직접 수정 금지)
+# 파일 위치: /etc/logrotate.d/nginx
+# logrotate는 cron.daily에 의해 매일 자정 실행됨
+# 수동 실행: logrotate -f /etc/logrotate.d/nginx
+# =============================================================
+
 /var/log/nginx/*.log {
+    daily
+    # 매일 로테이션 (weekly: 주간, monthly: 월간으로 변경 가능)
+    # 트래픽이 많으면 daily 권장 (하루치 로그가 너무 커지지 않도록)
+
+    rotate {{ nginx_log_rotate_days }}
+    # 최근 N개 파일만 보관하고 오래된 파일은 삭제
+    # prod(90), staging(60), dev(30) - group_vars/all.yml의 log_retention_days 기반
+
+    missingok
+    # 로그 파일이 없어도 에러 없이 넘어감 (Nginx가 아직 로그를 안 썼을 수 있음)
+
+    notifempty
+    # 로그 파일이 비어있으면 로테이션 스킵 (빈 파일이 쌓이는 것 방지)
+
+    compress
+    # 로테이션된 파일을 gzip으로 압축 (disk space 절약, 보통 70~80% 감소)
+
+    delaycompress
+    # 방금 로테이션된 파일(nginx.log.1)은 압축 안 하고
+    # 그 다음 날 다시 로테이션될 때 압축 (nginx.log.2.gz)
+    # 이유: nginx가 아직 이전 파일 디스크립터로 nginx.log.1에 쓰고 있을 수 있음
+
+    dateext
+    # 로테이션 파일에 날짜 추가 (nginx-access.log-20240115.gz 형태)
+    # 날짜가 없으면 .1, .2, .3... 숫자로만 구분돼 언제 파일인지 파악 어려움
+
+    dateformat -%Y%m%d
+    # 날짜 형식 지정 (예: nginx-access.log-20240115.gz)
+
+    sharedscripts
+    # 여러 로그 파일(.log*)을 로테이션할 때 postrotate 스크립트를 한 번만 실행
+    # 없으면 파일 개수만큼 nginx reload가 실행됨 (불필요한 reload 방지)
+
+    postrotate
+        # 로테이션 완료 후 Nginx에 USR1 시그널을 보내 로그 파일 재오픈
+        # Nginx는 시그널을 받으면 현재 열린 로그 파일을 닫고 새 파일로 다시 열음
+        # 이 단계를 빼면 Nginx가 계속 old 파일에 로그를 쓰고 new 파일은 비어있음
+        if [ -f /var/run/nginx.pid ]; then
+            kill -USR1 $(cat /var/run/nginx.pid)
+        fi
+        # PID 파일 존재 확인 후 시그널 전송 (Nginx가 꺼져있으면 에러 방지)
+    endscript
+}
+
+# -------------------------------------------------------
+# 앱 로그 로테이션 (Nginx가 프록시하는 앱의 로그도 함께 관리)
+# Spring Boot, Tomcat 등이 /var/log/앱이름/ 에 로그를 쓰는 경우
+# -------------------------------------------------------
+/var/log/app/*.log {
     daily
     rotate {{ nginx_log_rotate_days }}
     missingok
     notifempty
     compress
     delaycompress
-    sharedscripts
-    postrotate
-        /bin/kill -USR1 $(cat /var/run/nginx.pid 2>/dev/null) 2>/dev/null || true
-    endscript
+    dateext
+    dateformat -%Y%m%d
+    copytruncate
+    # copytruncate 방식: 파일을 복사(copy)한 뒤 원본을 0바이트로 자름(truncate)
+    # Java 앱은 파일 디스크립터를 오랫동안 열어두므로 USR1 시그널 방식 대신 사용
+    # 단점: truncate 순간 로그 일부 유실 가능성 있음 (매우 짧은 시간)
 }

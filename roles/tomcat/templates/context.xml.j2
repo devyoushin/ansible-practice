@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Tomcat context.xml (Ansible 관리 - 직접 수정 금지)
+  모든 웹 앱의 Context 설정 (글로벌 적용)
+  앱별 설정은 webapps/{앱이름}/META-INF/context.xml 에서 오버라이드 가능
+-->
+
+<Context>
+
+  <!--
+    WatchedResource: 이 파일들이 변경되면 앱을 자동으로 리로드
+    운영 환경에서는 자동 리로드를 끄는 것이 권장 (재시작 중 요청 유실)
+  -->
+  <WatchedResource>WEB-INF/web.xml</WatchedResource>
+  <WatchedResource>WEB-INF/tomcat-web.xml</WatchedResource>
+  <WatchedResource>${catalina.base}/conf/web.xml</WatchedResource>
+
+  <!--
+    Manager: 세션 관리자
+
+    PersistentManager: 세션을 파일/DB에 저장해 Tomcat 재시작 후에도 유지
+    - 사용 케이스: Tomcat 재시작 후 사용자가 로그아웃 안 되길 원할 때
+    - 분산 환경에서는 Redis나 DB 기반 세션 저장 사용 권장
+
+    운영 환경에서 기본 메모리 세션이면 아래를 주석 처리
+  -->
+  <!--
+  <Manager className="org.apache.catalina.session.PersistentManager"
+           saveOnRestart="true"
+           maxIdleBackup="30"
+           maxIdleSwap="60">
+    <Store className="org.apache.catalina.session.FileStore"
+           directory="{{ tomcat_home }}/sessions"/>
+  </Manager>
+  -->
+
+  <!--
+    Resources: 앱이 사용하는 정적 리소스 캐시 설정
+    Tomcat 내부의 파일 시스템 캐시 크기 (정적 파일 서빙 성능)
+    Nginx가 앞에서 정적 파일을 서빙하면 이 설정의 효과는 미미
+  -->
+  <Resources cachingAllowed="true"
+             cacheMaxSize="51200"/>
+  <!--
+    cachingAllowed: 정적 리소스를 메모리에 캐시
+    cacheMaxSize: 캐시 최대 크기 (KB, 50MB)
+  -->
+
+  <!--
+    CookieProcessor: 쿠키 처리 방식
+    SameSiteCookiesValve 대신 여기서 SameSite 설정 가능
+  -->
+  <CookieProcessor sameSiteCookies="strict"/>
+  <!--
+    strict: 크로스 사이트 요청에서 쿠키 미전송 (CSRF 방어)
+    lax: GET 방식 크로스 사이트 요청은 허용 (일반적)
+    none: 모든 크로스 사이트 요청에서 전송 (HTTPS 필수)
+  -->
+
+</Context>

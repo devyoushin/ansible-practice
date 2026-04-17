@@ -1,41 +1,98 @@
 # =============================================================
 # monitoring role 기본 변수
-# Node Exporter (모든 서버) + Prometheus (monitoring 서버)
+# Node Exporter (모든 서버) + Prometheus + Alertmanager (monitoring 서버)
 # =============================================================
 
-# ----------------------------
-# Node Exporter (각 서버의 메트릭 수집)
-# ----------------------------
+---
+# -------------------------------------------------------
+# [Node Exporter - 각 서버의 OS 메트릭 수집]
+# CPU, 메모리, 디스크, 네트워크 등 시스템 지표 수집
+# Prometheus가 9100 포트로 스크레이핑
+# -------------------------------------------------------
 node_exporter_version: "1.7.0"
 node_exporter_port: 9100
 node_exporter_user: "node_exporter"
 node_exporter_install_dir: "/opt/node_exporter"
 
-# ----------------------------
-# Prometheus (중앙 수집 서버)
+node_exporter_collectors:
+  # 활성화할 수집기 목록 (기본은 대부분 활성화되어 있음)
+  - "systemd"      # systemd 서비스 상태 수집 (failed 서비스 감지)
+  - "processes"    # 실행 중인 프로세스 정보
+  - "filesystem"   # 디스크 마운트별 사용량 (tmpfs 제외)
+  - "netstat"      # 네트워크 소켓 상태 (TCP 연결 수 등)
+
+# -------------------------------------------------------
+# [Prometheus - 중앙 메트릭 수집/저장]
 # monitoring 그룹 서버에만 설치됨
-# ----------------------------
+# 각 서버의 Node Exporter와 앱 메트릭을 15초마다 수집
+# -------------------------------------------------------
 prometheus_version: "2.50.0"
 prometheus_port: 9090
 prometheus_user: "prometheus"
 prometheus_data_dir: "/var/lib/prometheus"
 prometheus_config_dir: "/etc/prometheus"
 
-# 데이터 보관 기간
 prometheus_retention_time: "{{ '90d' if environment == 'prod' else '30d' }}"
+# 메트릭 데이터 보관 기간
+# prod: 90일 (장기 트렌드 분석), dev: 30일 (디스크 절약)
 
-# 스크레이핑 간격
+prometheus_retention_size: "0"
+# 디스크 기준 보관 크기 (0 = 제한 없음, 예: "10GB")
+# retention_time과 retention_size 중 먼저 도달하는 조건으로 삭제
+
 prometheus_scrape_interval: "15s"
+# 각 타겟에서 메트릭을 수집하는 간격
+# 짧을수록 세밀한 데이터, 길수록 서버/네트워크 부하 감소
+# 15초 = 대부분의 환경에서 권장
+
 prometheus_evaluation_interval: "15s"
+# Alert rule을 평가하는 간격 (scrape_interval과 동일하게 설정)
 
-# 알림 (Alertmanager 연동)
+# -------------------------------------------------------
+# [Alertmanager - 알림 발송]
+# Prometheus에서 보낸 alert를 받아 Slack, Email 등으로 전달
+# -------------------------------------------------------
+alertmanager_version: "0.27.0"
+alertmanager_port: 9093
+alertmanager_user: "alertmanager"
+alertmanager_config_dir: "/etc/alertmanager"
+alertmanager_data_dir: "/var/lib/alertmanager"
+
+# Prometheus가 Alertmanager에 연결하는 주소
 prometheus_alertmanager_host: "localhost"
-prometheus_alertmanager_port: 9093
+prometheus_alertmanager_port: "{{ alertmanager_port }}"
 
-# ----------------------------
-# 알림 규칙 임계값
-# ----------------------------
-alert_cpu_threshold: 85        # CPU 85% 이상 시 알림
-alert_memory_threshold: 90     # 메모리 90% 이상 시 알림
-alert_disk_threshold: 85       # 디스크 85% 이상 시 알림
-alert_duration: "5m"           # 5분 이상 지속 시 발화
+# -------------------------------------------------------
+# [Slack 알림 설정]
+# vault.yml에서 webhook URL을 암호화해서 관리
+# -------------------------------------------------------
+alertmanager_slack_enabled: true
+alertmanager_slack_webhook_url: "{{ vault_slack_webhook_url }}"
+alertmanager_slack_channel_critical: "#alerts-critical"   # 긴급 알림 채널
+alertmanager_slack_channel_warning: "#alerts-warning"     # 경고 알림 채널
+
+# -------------------------------------------------------
+# [알림 라우팅 설정]
+# -------------------------------------------------------
+alertmanager_group_wait: "30s"
+# 같은 그룹의 알림을 묶어서 보낼 때 첫 알림 전 대기 시간
+# 여러 서버가 동시에 다운될 때 알림을 하나로 묶음
+
+alertmanager_group_interval: "5m"
+# 같은 그룹에 새 알림이 추가될 때 재발송 간격
+# 5분마다 묶인 알림을 다시 발송
+
+alertmanager_repeat_interval: "4h"
+# 해결되지 않은 알림을 반복 발송하는 간격 (4시간)
+# 너무 짧으면 Slack 채널이 알림으로 도배됨
+
+# -------------------------------------------------------
+# [알림 규칙 임계값]
+# -------------------------------------------------------
+alert_cpu_threshold: 85         # CPU 사용률 85% 초과 시 경고
+alert_memory_threshold: 90      # 메모리 사용률 90% 초과 시 경고
+alert_disk_threshold: 85        # 디스크 사용률 85% 초과 시 경고
+alert_disk_critical_threshold: 95   # 디스크 95% 초과 시 긴급
+alert_duration: "5m"            # 5분 이상 지속되어야 알림 발화 (순간 스파이크 필터)
+alert_load_threshold: 4.0       # 시스템 로드 평균 4.0 초과 시 경고 (CPU 코어 수 고려)
+alert_swap_threshold: 50        # Swap 사용률 50% 초과 시 경고

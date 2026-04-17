@@ -1,64 +1,296 @@
 # =============================================================
-# MariaDB 설정 (Ansible 관리 - 직접 수정 금지)
+# MariaDB 설정 파일 (Ansible 관리 - 직접 수정 금지)
 # 호스트: {{ inventory_hostname }} | 환경: {{ environment }}
+# 생성 시각: {{ ansible_date_time.iso8601 }}
+# 적용: systemctl restart mariadb (서비스 재시작 필요)
+# 설정 확인: SHOW VARIABLES LIKE '변수명';
 # =============================================================
 
 [mysqld]
-# 기본
+# =============================================================
+# [기본 설정]
+# =============================================================
 port            = {{ mariadb_port }}
 bind-address    = {{ mariadb_bind_address }}
+# 0.0.0.0 = 모든 IP에서 연결 허용 (방화벽으로 접근 제어)
+# 보안 강화 시: 앱서버 서브넷 IP로 변경
+
 datadir         = {{ mariadb_datadir }}
+# DB 데이터 파일(.ibd), 로그 파일 저장 위치
+# 디스크 I/O 성능에 직접 영향 (SSD 마운트 포인트 권장)
+
 pid-file        = {{ mariadb_pid_file }}
 socket          = /var/lib/mysql/mysql.sock
+# Unix 소켓 파일 (로컬 mysql 클라이언트 연결용)
 
-# 문자셋
+# =============================================================
+# [문자셋 - UTF-8 완전 지원]
+# =============================================================
 character-set-server  = {{ mariadb_character_set }}
+# 서버 기본 문자셋 (새로 생성되는 DB의 기본값)
+
 collation-server      = {{ mariadb_collation }}
+# 정렬/비교 규칙 (utf8mb4_unicode_ci = 언어별 정렬 규칙 적용)
 
-# 연결
+init_connect          = 'SET NAMES utf8mb4'
+# 클라이언트가 연결될 때마다 자동으로 utf8mb4 설정
+# 오래된 JDBC 드라이버처럼 문자셋을 자동으로 협상 못 하는 경우 대비
+
+skip-character-set-client-handshake
+# 클라이언트가 요청하는 문자셋 무시하고 서버 설정 강제
+# 모든 연결이 utf8mb4를 사용하도록 통일
+
+# =============================================================
+# [연결 설정]
+# =============================================================
 max_connections       = {{ mariadb_max_connections }}
+# 최대 동시 연결 수
+# 현재 연결 수 확인: SHOW STATUS LIKE 'Threads_connected';
+# 최대 동시 연결 수 확인: SHOW STATUS LIKE 'Max_used_connections';
+
 max_allowed_packet    = {{ mariadb_max_allowed_packet }}
+# 클라이언트-서버 간 최대 패킷 크기
+# BLOB, TEXT 대용량 데이터 저장 시 증가 필요
 
-# InnoDB 성능 튜닝
+wait_timeout          = {{ mariadb_wait_timeout }}
+# 비대화형(JDBC 등) 유휴 연결 자동 종료 시간 (초)
+# HikariCP max-lifetime < 이 값 으로 설정해야 DB가 먼저 끊지 않음
+
+interactive_timeout   = {{ mariadb_interactive_timeout }}
+# mysql 클라이언트 등 대화형 연결의 유휴 타임아웃
+
+# 스레드 캐시 (연결 종료 시 스레드를 바로 버리지 않고 캐시해 재사용)
+thread_cache_size     = 50
+# 50개까지 스레드를 캐시 → 새 연결 시 스레드 생성 비용 절감
+# 확인: SHOW STATUS LIKE 'Threads_created'; (이 값이 빠르게 증가하면 늘릴 것)
+
+# =============================================================
+# [InnoDB 스토리지 엔진 성능 튜닝]
+# =============================================================
 innodb_buffer_pool_size   = {{ mariadb_innodb_buffer_pool_size }}
+# ★ 가장 중요한 설정 ★
+# 데이터와 인덱스를 메모리에 캐시 (RAM의 50~70% 설정)
+# 이 값이 클수록 디스크 I/O가 줄어 쿼리 속도 향상
+# 현재 효율 확인: SHOW ENGINE INNODB STATUS\G → "Buffer pool hit rate"
+#   99%+ → 충분, 95% 미만 → 부족 (값을 늘려야 함)
+
+innodb_buffer_pool_instances = {{ mariadb_innodb_buffer_pool_instances }}
+# buffer_pool이 1GB 이상이면 여러 인스턴스로 분할해 잠금 경합 감소
+# 권장: buffer_pool_size(GB) 수만큼 설정 (최대 64)
+
 innodb_log_file_size      = {{ mariadb_innodb_log_file_size }}
-innodb_flush_log_at_trx_commit = 1   # 1=안전(기본), 2=성능우선
-innodb_file_per_table     = ON
+# InnoDB 리두 로그 파일 크기 (복구 로그, WAL 역할)
+# 클수록: 성능 향상 (flush 빈도 감소), 크래시 복구 시간 증가
+# 쓰기 집약적 서버: 512M~1G 설정
 
-# 쿼리 캐시
-query_cache_size   = {{ mariadb_query_cache_size }}
-query_cache_type   = 1
+innodb_log_buffer_size    = {{ mariadb_innodb_log_buffer_size }}
+# 커밋 전 리두 로그를 임시로 보관하는 메모리 버퍼
+# 대용량 트랜잭션(대량 INSERT) 시 더 크게 설정해 flush 감소
 
-# Slow Query 로그
+innodb_flush_log_at_trx_commit = {{ mariadb_innodb_flush_log_at_trx_commit }}
+# 1 = COMMIT마다 디스크 flush (ACID 완전 보장, prod 필수)
+# 2 = OS 버퍼 기록, 1초마다 flush (OS 크래시 시 1초치 유실 가능)
+# 0 = 1초마다 메모리→OS→디스크 (가장 빠름, 가장 위험)
+
+innodb_file_per_table     = {{ mariadb_innodb_file_per_table }}
+# ON = 테이블마다 독립적인 .ibd 파일
+#      → DROP TABLE 시 파일 삭제로 디스크 공간 즉시 반환
+# OFF = 모든 테이블이 ibdata1 공유 (ibdata1은 줄어들지 않음)
+
+innodb_flush_method       = {{ mariadb_innodb_flush_method }}
+# O_DIRECT = OS 페이지 캐시 건너뛰기 (InnoDB buffer pool이 캐시 담당)
+#             double buffering 방지로 메모리 효율 향상
+
+innodb_read_io_threads    = {{ mariadb_innodb_read_io_threads }}
+innodb_write_io_threads   = {{ mariadb_innodb_write_io_threads }}
+# InnoDB 백그라운드 I/O 스레드 수
+# SSD/NVMe: 높을수록 병렬 I/O 처리 향상 (최대 64)
+
+innodb_io_capacity        = 200
+# 초당 I/O 작업 용량 (HDD: 200, SSD: 2000~4000, NVMe: 10000+)
+# flush 속도 제어 - 너무 낮으면 더티 페이지 축적, 너무 높으면 I/O 과부하
+
+innodb_io_capacity_max    = 2000
+# 급격한 I/O 증가(dirty page flush burst) 시 최대 I/O 용량
+
+# =============================================================
+# [쿼리 캐시]
+# =============================================================
+query_cache_type          = {{ mariadb_query_cache_type }}
+query_cache_size          = {{ mariadb_query_cache_size }}
+# type=0: 완전 비활성 (쓰기 많은 OLTP 환경 권장)
+# type=0 + size=0: 쿼리 캐시 관련 메모리 완전 해제
+
+# =============================================================
+# [슬로우 쿼리 로그 - 성능 저하 쿼리 추적]
+# =============================================================
 slow_query_log          = {{ '1' if mariadb_slow_query_log else '0' }}
+# 1 = 활성화 (운영 환경에서 반드시 켜둘 것 - 성능 문제 조기 발견)
+
 slow_query_log_file     = {{ mariadb_log_dir }}/slow.log
 long_query_time         = {{ mariadb_slow_query_log_time }}
-log_queries_not_using_indexes = ON
+# 이 시간(초) 이상 걸린 쿼리를 slow.log에 기록
+# 1초 = 기본 권장, 0.1초 = 더 세밀한 추적
 
-# 에러 로그
+log_queries_not_using_indexes = {{ mariadb_log_queries_not_using_indexes }}
+# ON = 인덱스를 안 쓰는 쿼리도 기록 (테이블 풀 스캔 탐지)
+# 초기 운영 시 켜두고 최적화 후 끄는 것 권장 (로그 볼륨 주의)
+
+min_examined_row_limit = 1000
+# 조회한 행이 1000개 이상인 쿼리만 slow log 기록
+# log_queries_not_using_indexes와 함께 설정해 노이즈 감소
+
+# slow query 분석 도구 (서버 설치 후 사용):
+# pt-query-digest /var/log/mariadb/slow.log   (Percona Toolkit)
+# mysqldumpslow /var/log/mariadb/slow.log
+
+# =============================================================
+# [에러 로그]
+# =============================================================
 log_error = {{ mariadb_log_dir }}/error.log
+# MariaDB 시작/종료, 크래시, 연결 에러 등 기록
+# 문제 발생 시 가장 먼저 확인할 로그 파일
+
+log_warnings = 2
+# 경고 메시지 로그 수준 (0: 없음, 1: 일반, 2: 상세 - 연결 에러 포함)
+
+# =============================================================
+# [일반 쿼리 로그 (비활성 권장)]
+# 모든 쿼리를 기록 - 성능에 심각한 영향, 디버깅 시에만 임시 활성화
+# =============================================================
+general_log          = OFF
+# ON으로 하면 모든 SELECT, INSERT, UPDATE, DELETE가 기록됨
+# 트래픽 많은 prod 서버에서 ON하면 디스크 I/O 폭발
+general_log_file     = {{ mariadb_log_dir }}/general.log
+
+# =============================================================
+# [임시 테이블 및 정렬 버퍼]
+# 복잡한 JOIN, ORDER BY, GROUP BY 쿼리 성능에 영향
+# =============================================================
+tmp_table_size        = 64M
+# 메모리에서 처리하는 임시 테이블 최대 크기
+# 초과 시 디스크(/tmp)로 spill → 성능 급저하
+# SHOW STATUS LIKE 'Created_tmp_disk_tables'; 값이 높으면 늘릴 것
+
+max_heap_table_size   = 64M
+# MEMORY 스토리지 엔진 테이블 최대 크기
+# tmp_table_size와 동일하게 설정
+
+sort_buffer_size      = 4M
+# ORDER BY 정렬 시 사용하는 스레드별 버퍼 (연결당 할당)
+# 너무 크게 설정하면 총 메모리 = sort_buffer × max_connections
+
+join_buffer_size      = 4M
+# 인덱스 없는 JOIN 시 사용하는 버퍼 (풀 스캔 JOIN)
+# 인덱스 추가가 근본 해결책, 임시방편으로 늘리는 것은 권장 안 함
+
+read_buffer_size      = 2M
+# 순차 스캔(풀 테이블 스캔) 시 읽기 버퍼 크기
+
+read_rnd_buffer_size  = 4M
+# ORDER BY 후 행을 정렬 순서로 읽을 때 사용하는 버퍼
 
 {% if mariadb_replication_enabled %}
-# ----------------------------
-# 복제(Replication) 설정
-# ----------------------------
-server-id         = {{ mariadb_server_id }}
+# =============================================================
+# [복제(Replication) 설정]
+# Master-Slave 구조: Master 쓰기 전담, Slave 읽기 부하분산
+# =============================================================
+server-id             = {{ mariadb_server_id }}
+# 복제 구성의 각 서버를 구분하는 고유 번호 (겹치면 복제 중단)
+# Master=1, Slave1=2, Slave2=3 순으로 설정
+
 {% if mariadb_replication_role == 'master' %}
-log_bin           = {{ mariadb_datadir }}/mysql-bin
-binlog_format     = ROW
-expire_logs_days  = 7
-max_binlog_size   = 100M
+# -------------------------------------------------------
+# [Master 설정]
+# -------------------------------------------------------
+log_bin               = {{ mariadb_datadir }}/mysql-bin
+# 바이너리 로그 활성화 - 복제의 핵심 (모든 변경사항을 이벤트로 기록)
+# Slave는 이 로그를 읽어서 동일한 변경을 적용
+
+binlog_format         = {{ mariadb_binlog_format }}
+# ROW: 변경된 행 데이터를 직접 기록 (안전, 대용량 배치 시 로그 큼)
+# STATEMENT: SQL 문장을 기록 (작은 크기, 비결정적 함수에서 불일치 위험)
+# MIXED: 기본 STATEMENT, 비결정적 함수는 ROW (절충)
+
+expire_logs_days      = {{ mariadb_binlog_expire_logs_days }}
+# N일 이상 된 binlog 파일 자동 삭제 (디스크 공간 관리)
+# PITR(특정 시점 복구)을 원하는 기간만큼 유지
+
+max_binlog_size       = {{ mariadb_max_binlog_size }}
+# binlog 파일 하나의 최대 크기 (초과 시 새 파일 생성)
+
+sync_binlog           = 1
+# 1 = 매 트랜잭션마다 binlog를 디스크에 동기화 (안전, 성능 비용 있음)
+# 0 = OS가 알아서 flush (빠르지만 크래시 시 binlog 손상 가능)
+
+# Slave가 읽어갔는지 여부를 Master에서 추적 (GTID 없는 환경)
+log_slave_updates     = ON
+# Slave에서 복제로 실행된 이벤트도 Slave의 binlog에 기록
+# Slave를 또 다른 Slave의 Master로 사용할 때 필요 (Chain 복제)
+
 {% elif mariadb_replication_role == 'slave' %}
-relay-log         = {{ mariadb_datadir }}/relay-bin
-read_only         = ON   # 슬레이브는 읽기 전용
-log_slave_updates = ON
+# -------------------------------------------------------
+# [Slave 설정]
+# -------------------------------------------------------
+relay-log             = {{ mariadb_datadir }}/relay-bin
+# Master의 binlog를 Slave로 복사한 파일 (Relay Log)
+# Slave의 SQL 스레드가 이 파일을 읽어 적용
+
+read_only             = ON
+# Slave에서 일반 계정의 쓰기 작업 차단 (복제 불일치 방지)
+# super 권한이 있는 계정(root, replicator)은 여전히 쓰기 가능
+# super_read_only = ON 으로 root도 차단 가능 (더 강력)
+
+log_slave_updates     = ON
+# Slave에서 복제 이벤트를 자신의 binlog에도 기록
+# Slave → 다른 Slave로의 연쇄 복제(chain replication) 시 필요
+
+slave_parallel_threads = 4
+# 병렬 복제 스레드 수 (기본 0 = 순차 복제)
+# Master 멀티스레드 실행 → Slave도 병렬 적용해 복제 지연(lag) 감소
+# slave_parallel_mode = optimistic 과 함께 사용
 {% endif %}
 {% endif %}
+
+# =============================================================
+# [보안 설정]
+# =============================================================
+local-infile          = OFF
+# LOAD DATA LOCAL INFILE 명령 비활성화 (클라이언트 파일 무단 접근 방지)
+
+skip-symbolic-links
+# 심볼릭 링크를 통한 테이블 파일 접근 비활성화 (디렉토리 트래버설 방지)
 
 [mysql]
+# mysql 클라이언트 기본 설정
 default-character-set = {{ mariadb_character_set }}
+no-auto-rehash
+# 자동완성 비활성화 (대용량 테이블 접속 시 속도 향상)
+prompt = "\\u@\\h:\\d> "
+# 프롬프트 형식: 사용자@호스트:데이터베이스>
 
 [client]
+# 모든 클라이언트 도구 공통 설정 (mysql, mysqldump, mysqladmin 등)
 port    = {{ mariadb_port }}
 socket  = /var/lib/mysql/mysql.sock
 default-character-set = {{ mariadb_character_set }}
+
+[mysqldump]
+# mysqldump (백업 도구) 전용 설정
+single-transaction
+# InnoDB 테이블 백업 시 테이블 잠금 없이 스냅샷 백업
+# MyISAM은 이 옵션이 효과 없음 (잠금 필요)
+
+quick
+# 대용량 테이블 백업 시 메모리 절약
+# 전체 데이터를 메모리에 올리지 않고 한 행씩 읽어서 출력
+
+max_allowed_packet = {{ mariadb_max_allowed_packet }}
+# 백업 중 큰 행 데이터 처리를 위해 동일하게 설정
+
+[mysqld_safe]
+# mysqld_safe 래퍼 스크립트 설정 (systemd 환경에서는 잘 사용 안 함)
+log-error = {{ mariadb_log_dir }}/error.log
+open-files-limit = 65536
+# mysqld 프로세스의 파일 디스크립터 한도
+# max_connections × 5 이상으로 설정 권장

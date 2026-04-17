@@ -1,0 +1,116 @@
+# =============================================================
+# prod 환경 - DB 서버(MariaDB) 전용 변수
+# 이 파일의 값이 roles/database/defaults/main.yml 보다 우선 적용됨
+# 대상 그룹: [dbservers]
+# =============================================================
+
+---
+# -------------------------------------------------------
+# [MariaDB 성능 튜닝 - prod 서버 스펙에 맞게]
+# AWS RDS가 아닌 EC2 직접 설치 기준
+# 서버 스펙: r5.2xlarge (8코어, 64GB RAM) 기준
+# -------------------------------------------------------
+
+mariadb_max_connections: 500
+# 앱서버 3대 × HikariCP 20개 = 60개 + DBA/모니터링 여유 포함
+# max_connections 늘릴 때: 연결당 메모리 ≈ sort_buffer + join_buffer ≈ 8MB
+# 500 × 8MB = 4GB 추가 메모리 필요
+
+mariadb_innodb_buffer_pool_size: "45G"
+# 서버 RAM 64GB의 70% = 약 44~46GB
+# 전체 DB 크기가 이 값 안에 들어오면 디스크 I/O 거의 없음
+# 현재 상태 확인: SHOW STATUS LIKE 'Innodb_buffer_pool_read_requests';
+#                SHOW STATUS LIKE 'Innodb_buffer_pool_reads'; (reads/read_requests < 1% 이면 충분)
+
+mariadb_innodb_buffer_pool_instances: 8
+# buffer_pool_size가 8GB 이상이면 인스턴스 나눠야 잠금 경합 감소
+# 인스턴스당 약 5.6GB → 8개 인스턴스
+
+mariadb_innodb_log_file_size: "1G"
+# 대용량 쓰기 작업 많을 때 1GB 설정
+# innodb_log_buffer_size가 너무 작으면 flush가 잦아 성능 저하
+# Checkpoint Age가 90% 이상이면 로그 파일 크기 증가 필요
+
+mariadb_innodb_log_buffer_size: "128M"
+# 대용량 배치 INSERT 처리 시 커밋 전 버퍼에 보관
+# 초당 100MB 이상 쓰는 경우 256M으로 증가
+
+mariadb_innodb_read_io_threads: 8
+mariadb_innodb_write_io_threads: 8
+# prod SSD 기준 8 스레드 (NVMe이면 16까지 증가 가능)
+
+mariadb_innodb_io_capacity: 2000
+# SSD 기준 2000 IOPs (NVMe이면 10000+)
+# AWS EBS gp3: 3000 IOPs 기본, 최대 16000 IOPs
+
+mariadb_slow_query_log_time: 1
+# prod에서 1초 이상 쿼리 기록 (0.5초로 낮추면 더 세밀한 추적)
+
+mariadb_binlog_expire_logs_days: 14
+# prod는 2주치 binlog 보관 (Point-in-Time Recovery 범위)
+
+# -------------------------------------------------------
+# [복제 설정 - prod에서 활성화]
+# -------------------------------------------------------
+mariadb_replication_enabled: true
+# Master-Slave 복제로 읽기 부하 분산 + 장애 복구 가능성 확보
+
+# -------------------------------------------------------
+# [prod DB 서버 전용 sysctl 오버라이드]
+# common role의 sysctl_settings에 추가되는 DB 전용 파라미터
+# -------------------------------------------------------
+sysctl_settings:
+  # DB 공통 설정 상속 + DB 전용 추가
+  - name: "vm.swappiness"
+    value: "1"
+    # DB는 swap 거의 절대 사용하면 안 됨
+    # swap 발생 시 InnoDB buffer pool이 swap에 올라가 쿼리 시간 수백배 증가
+
+  - name: "vm.dirty_ratio"
+    value: "10"
+    # 더티 페이지 10%에서 강제 flush (DB 데이터 안전성 강화)
+
+  - name: "vm.dirty_background_ratio"
+    value: "3"
+    # 3%에서 백그라운드 flush 시작 (꾸준한 쓰기로 sudden flush 방지)
+
+  - name: "net.core.somaxconn"
+    value: "65535"
+  - name: "net.ipv4.tcp_max_syn_backlog"
+    value: "65535"
+  - name: "fs.file-max"
+    value: "2097152"
+  - name: "net.ipv4.tcp_fin_timeout"
+    value: "15"
+  - name: "net.ipv4.tcp_keepalive_time"
+    value: "300"
+  - name: "net.ipv4.tcp_keepalive_intvl"
+    value: "30"
+  - name: "net.ipv4.tcp_keepalive_probes"
+    value: "3"
+  - name: "net.ipv4.ip_local_port_range"
+    value: "10240 65535"
+
+  - name: "kernel.shmmax"
+    value: "68719476736"
+    # 최대 공유 메모리 세그먼트 크기 (64GB)
+    # InnoDB가 공유 메모리를 사용하는 일부 설정에서 필요
+
+  - name: "kernel.shmall"
+    value: "4294967296"
+    # 시스템 전체 공유 메모리 페이지 수 (4GB / 4KB = 1M 페이지)
+
+# -------------------------------------------------------
+# [prod ulimit - DB 서버용]
+# -------------------------------------------------------
+ulimit_nofile_soft: 65536
+ulimit_nofile_hard: 65536
+# MariaDB의 open_files_limit과 일치시켜야 함
+# 현재 오픈 파일 수: SHOW STATUS LIKE 'Open_files';
+
+# -------------------------------------------------------
+# [백업 설정 - prod 강화]
+# -------------------------------------------------------
+mariadb_backup_enabled: true
+mariadb_backup_retention_days: 14    # prod는 2주 보관
+mariadb_backup_schedule: "0 1 * * *"  # 새벽 1시 (트래픽 최저점)

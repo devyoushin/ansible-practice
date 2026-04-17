@@ -1,43 +1,182 @@
 # =============================================================
-# Nginx 기본 가상 호스트 설정 템플릿
+# Nginx 기본 가상 호스트 설정 (Ansible 관리 - 직접 수정 금지)
+# 호스트: {{ inventory_hostname }} | 환경: {{ environment }}
 # =============================================================
 
 server {
     listen {{ nginx_port }} default_server;
-    listen [::]:{{ nginx_port }} default_server;
+    listen [::]:{{ nginx_port }} default_server;   # IPv6도 함께 리슨
 
     server_name {{ nginx_server_name }};
+    # "_" 로 설정 시 Host 헤더와 상관없이 모든 요청 수락
+    # 실제 도메인이 있으면 "example.com www.example.com" 형태로 변경
+
     root {{ nginx_root }};
     index index.html index.htm;
 
-    # 액세스 로그
-    access_log /var/log/nginx/{{ inventory_hostname }}-access.log main;
+    # 호스트별 개별 로그 (다중 서버에서 어떤 서버의 로그인지 구분 가능)
+    access_log /var/log/nginx/{{ inventory_hostname }}-access.log json_combined;
     error_log  /var/log/nginx/{{ inventory_hostname }}-error.log warn;
 
-    # 기본 location
+    # -------------------------------------------------------
+    # [프록시 버퍼 설정]
+    # 앱서버(upstream)로부터 받은 응답을 클라이언트에 전달하기 전에 버퍼에 저장
+    # 버퍼가 너무 작으면 임시 파일(/tmp)에 쓰게 되어 디스크 I/O 발생
+    # -------------------------------------------------------
+    proxy_buffer_size {{ nginx_proxy_buffer_size | default('8k') }};
+    # 응답 헤더 + 첫 번째 부분을 담는 버퍼
+    # JWT 토큰이나 큰 쿠키가 있으면 16k로 늘려야 함 ("upstream sent too big header" 에러 발생 시)
+
+    proxy_buffers {{ nginx_proxy_buffers_number | default(8) }} {{ nginx_proxy_buffers_size | default('16k') }};
+    # 응답 본문을 나눠서 담는 버퍼 (개수 × 크기 = 총 버퍼 용량)
+
+    proxy_busy_buffers_size {{ nginx_proxy_busy_buffers_size | default('32k') }};
+    # 클라이언트로 전송 중인 버퍼의 최대 크기
+
+    # -------------------------------------------------------
+    # [프록시 공통 헤더]
+    # 앱서버에 클라이언트 정보를 전달하는 헤더
+    # -------------------------------------------------------
+    proxy_http_version 1.1;
+    # HTTP/1.1 사용 (upstream keepalive에 필수, HTTP/1.0은 keepalive 미지원)
+
+    proxy_set_header Host $host;
+    # 원래 요청의 Host 헤더를 앱서버에 전달 (가상 호스트 구분에 사용)
+
+    proxy_set_header X-Real-IP $remote_addr;
+    # 바로 앞 클라이언트 IP (LB가 있으면 LB IP, 직접 연결 시 실제 IP)
+
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    # 전체 프록시 체인의 IP 목록 (예: "1.2.3.4, 10.0.0.1")
+    # 앱서버 로그에서 실제 사용자 IP 확인 시 사용
+
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # 원래 요청 프로토콜 (http 또는 https)
+    # Spring Boot: server.use-forward-headers=true 로 이 헤더 인식
+
+    proxy_set_header Connection "";
+    # "Connection: keep-alive" 헤더를 제거해 upstream keepalive가 올바르게 동작
+    # (기본값 "close"를 upstream에 전달하면 keepalive 연결이 바로 닫힘)
+
+    # -------------------------------------------------------
+    # [기본 location - 정적 파일 또는 앱 프록시]
+    # -------------------------------------------------------
     location / {
+{% if nginx_upstream_enabled | default(false) %}
+        # 앱서버로 프록시 (Nginx가 직접 앱서버와 통신하는 경우)
+        proxy_pass http://{{ nginx_upstream_name }};
+        proxy_connect_timeout {{ nginx_proxy_connect_timeout | default('10s') }};
+        proxy_read_timeout    {{ nginx_proxy_read_timeout | default('60s') }};
+        proxy_send_timeout    {{ nginx_proxy_send_timeout | default('60s') }};
+{% else %}
+        # 정적 파일 서빙 (CDN이 없고 Nginx가 직접 파일 제공하는 경우)
         try_files $uri $uri/ =404;
+        # 요청된 파일 → 디렉토리 → 404 순으로 시도
+{% endif %}
     }
 
-    # 헬스체크 엔드포인트
-    location /health {
+{% if nginx_rate_limit_enabled | default(true) %}
+    # -------------------------------------------------------
+    # [API 엔드포인트 Rate Limiting]
+    # -------------------------------------------------------
+    location /api/ {
+{% if nginx_upstream_enabled | default(false) %}
+        proxy_pass http://{{ nginx_upstream_name }};
+{% endif %}
+        limit_req zone=api burst=20 nodelay;
+        # zone=api: nginx.conf에 정의된 api 존 사용
+        # burst=20: 순간 초과 요청을 최대 20개까지 큐에 넣어 처리
+        #           21번째부터는 429 응답
+        # nodelay: 큐에 넣지 않고 burst 범위 안에서 즉시 처리
+        #          (delay 없이 처리하되 초과분만 거절)
+        limit_req_log_level warn;   # 거절된 요청을 warn 수준으로 로그 기록
+    }
+
+    location /auth/ {
+        limit_req zone=login burst=5 nodelay;
+        # 로그인 API는 더 엄격하게 제한 (burst 5회)
+{% if nginx_upstream_enabled | default(false) %}
+        proxy_pass http://{{ nginx_upstream_name }};
+{% endif %}
+    }
+{% endif %}
+
+{% if nginx_static_cache_enabled | default(true) %}
+    # -------------------------------------------------------
+    # [정적 파일 브라우저 캐시]
+    # 변경이 없는 파일을 브라우저가 로컬에 캐시하도록 유도
+    # 반복 방문 시 서버 요청 자체를 줄여 서버 부하 감소
+    # -------------------------------------------------------
+    location ~* \.(jpg|jpeg|png|gif|ico|webp|svg)$ {
+        expires {{ nginx_static_cache_days | default(30) }}d;
+        # 브라우저 캐시 만료 시간 (30일)
+        add_header Cache-Control "public, immutable";
+        # public: CDN/프록시도 캐시 가능
+        # immutable: 만료 전에는 재검증 요청(If-None-Match)도 보내지 말라는 힌트
+        access_log off;   # 정적 파일 요청은 로그 기록 안 함 (로그 용량 절약)
+    }
+
+    location ~* \.(css|js|woff|woff2|ttf|eot)$ {
+        expires {{ nginx_static_cache_days | default(30) }}d;
+        add_header Cache-Control "public";
         access_log off;
-        return 200 "healthy\n";
+    }
+{% endif %}
+
+    # -------------------------------------------------------
+    # [헬스체크 엔드포인트]
+    # LB(HAProxy, ALB)가 이 서버가 살아있는지 확인하는 URL
+    # -------------------------------------------------------
+    location /health {
+        access_log off;              # 헬스체크 로그는 기록 안 함 (로그 폭발 방지)
+        return 200 "healthy\n";      # 200 OK 응답으로 서버 정상 상태 알림
         add_header Content-Type text/plain;
     }
 
-    # 상태 페이지 (로컬만 허용)
+    # -------------------------------------------------------
+    # [Nginx 상태 모니터링 페이지]
+    # Node Exporter의 nginx 수집기, Prometheus에서 메트릭 수집에 사용
+    # 반드시 내부 IP만 허용 (외부 노출 시 서버 상태 정보 유출)
+    # -------------------------------------------------------
     location /nginx_status {
         stub_status on;
+        # 응답 예시:
+        # Active connections: 291
+        # server accepts handled requests
+        #  16630948 16630948 31070465
+        # Reading: 6 Writing: 179 Waiting: 106
         access_log off;
-        allow 127.0.0.1;
-        deny all;
+        allow 127.0.0.1;             # 로컬 호스트 허용 (Node Exporter가 여기서 수집)
+        allow 10.0.0.0/8;            # VPC 내부 허용 (Prometheus 서버에서 수집)
+        deny all;                    # 그 외 모든 접근 차단
     }
 
-    # 숨김 파일 접근 차단
+    # -------------------------------------------------------
+    # [보안 - 민감한 경로 차단]
+    # -------------------------------------------------------
     location ~ /\. {
+        # 숨김 파일/디렉토리 접근 차단 (.git, .env, .htaccess 등)
+        deny all;
+        access_log off;
+        log_not_found off;    # 404 에러 로그도 기록 안 함 (스캔 봇 노이즈 방지)
+    }
+
+    location ~* \.(sql|bak|old|orig|backup|swp|tmp)$ {
+        # 백업 파일, SQL 덤프, 임시 파일 접근 차단
         deny all;
         access_log off;
         log_not_found off;
+    }
+
+    # -------------------------------------------------------
+    # [커스텀 에러 페이지]
+    # 기본 Nginx 에러 페이지는 버전 정보 노출 위험
+    # -------------------------------------------------------
+    error_page 404              /404.html;
+    error_page 500 502 503 504  /50x.html;
+
+    location = /50x.html {
+        root /var/www/html;
+        internal;   # 외부에서 직접 /50x.html 요청 시 404 처리 (에러 페이지만 내부 사용)
     }
 }

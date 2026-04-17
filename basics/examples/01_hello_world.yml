@@ -1,0 +1,73 @@
+---
+# ================================================================
+# 예제 01: 첫 플레이북 — Hello World
+# ================================================================
+# 실행 방법:
+#   ansible-playbook -i hosts_example.ini 01_hello_world.yml
+#
+# 로컬에서 테스트:
+#   ansible-playbook -i "localhost," -c local 01_hello_world.yml
+# ================================================================
+
+- name: 첫 번째 플레이북 — Hello World
+  hosts: all           # 인벤토리의 모든 서버
+  gather_facts: true   # 서버 정보 자동 수집
+
+  tasks:
+
+    # ── 1. 연결 테스트 ──────────────────────────────────────────
+    - name: 서버 연결 확인 (ping)
+      ping:
+      # 성공하면 "pong" 반환
+
+    # ── 2. 메시지 출력 ──────────────────────────────────────────
+    - name: 인사 메시지 출력
+      debug:
+        msg: "안녕하세요! {{ inventory_hostname }} 입니다."
+        # inventory_hostname = 인벤토리에 등록된 호스트 이름
+
+    # ── 3. 서버 정보 출력 (Facts 활용) ─────────────────────────
+    - name: 서버 기본 정보 출력
+      debug:
+        msg:
+          - "호스트명:  {{ ansible_hostname }}"
+          - "OS:        {{ ansible_distribution }} {{ ansible_distribution_version }}"
+          - "커널:      {{ ansible_kernel }}"
+          - "CPU:       {{ ansible_processor_count }}코어"
+          - "메모리:    {{ ansible_memtotal_mb }}MB"
+          - "IP:        {{ ansible_default_ipv4.address | default('N/A') }}"
+
+    # ── 4. 변수 사용 예시 ───────────────────────────────────────
+    - name: 변수를 사용한 메시지
+      vars:
+        my_name: "Ansible 학습자"
+        today: "{{ ansible_date_time.date }}"
+      debug:
+        msg: "{{ today }} — 안녕하세요, {{ my_name }}님!"
+
+    # ── 5. 조건문 예시 ──────────────────────────────────────────
+    - name: RHEL 계열 서버 감지
+      debug:
+        msg: "이 서버는 RedHat 계열입니다."
+      when: ansible_os_family == "RedHat"
+
+    - name: Debian 계열 서버 감지
+      debug:
+        msg: "이 서버는 Debian 계열입니다."
+      when: ansible_os_family == "Debian"
+
+    # ── 6. 반복문 예시 ──────────────────────────────────────────
+    - name: 숫자 1~5 출력
+      debug:
+        msg: "숫자: {{ item }}"
+      loop: [1, 2, 3, 4, 5]
+
+    # ── 7. 명령 실행 후 결과 저장 ───────────────────────────────
+    - name: 현재 시간 확인
+      command: date "+%Y-%m-%d %H:%M:%S"
+      register: current_time
+      changed_when: false   # 조회 목적이므로 changed 표시 안 함
+
+    - name: 현재 시간 출력
+      debug:
+        msg: "서버 현재 시간: {{ current_time.stdout }}"

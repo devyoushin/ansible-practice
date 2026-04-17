@@ -1,0 +1,104 @@
+# =============================================================
+# Tomcat 설치 태스크
+# =============================================================
+
+---
+# -------------------------------------------------------
+# 1. 시스템 계정 생성
+# -------------------------------------------------------
+- name: Tomcat 전용 시스템 계정 생성
+  ansible.builtin.user:
+    name: "{{ tomcat_user }}"
+    group: "{{ tomcat_group }}"
+    system: yes               # 시스템 계정 (로그인 불가)
+    shell: /sbin/nologin      # 로그인 쉘 없음 (보안)
+    home: "{{ tomcat_install_dir }}"
+    create_home: no
+    comment: "Tomcat service account"
+
+# -------------------------------------------------------
+# 2. 디렉토리 구조 생성
+# -------------------------------------------------------
+- name: Tomcat 설치 디렉토리 생성
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ tomcat_user }}"
+    group: "{{ tomcat_group }}"
+    mode: '0755'
+  loop:
+    - "{{ tomcat_install_dir }}"   # /opt/tomcat
+    - "{{ tomcat_log_dir }}"       # /var/log/tomcat
+
+# -------------------------------------------------------
+# 3. Tomcat 다운로드 및 설치
+# -------------------------------------------------------
+- name: Tomcat 설치 여부 확인
+  ansible.builtin.stat:
+    path: "{{ tomcat_home }}/bin/catalina.sh"
+  register: tomcat_installed
+  # catalina.sh가 있으면 이미 설치된 것 → 다운로드 스킵
+
+- name: Tomcat {{ tomcat_version }} 다운로드
+  ansible.builtin.get_url:
+    url: "https://archive.apache.org/dist/tomcat/tomcat-{{ tomcat_major_version }}/v{{ tomcat_version }}/bin/apache-tomcat-{{ tomcat_version }}.tar.gz"
+    dest: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+    mode: '0644'
+  when: not tomcat_installed.stat.exists
+
+- name: Tomcat 압축 해제
+  ansible.builtin.unarchive:
+    src: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+    dest: "{{ tomcat_install_dir }}"
+    remote_src: yes
+    owner: "{{ tomcat_user }}"
+    group: "{{ tomcat_group }}"
+  when: not tomcat_installed.stat.exists
+
+- name: 압축 해제된 디렉토리를 버전명으로 이동
+  ansible.builtin.command:
+    cmd: mv {{ tomcat_install_dir }}/apache-tomcat-{{ tomcat_version }} {{ tomcat_home }}
+    creates: "{{ tomcat_home }}"
+  # creates: 이 경로가 이미 있으면 실행 안 함 (멱등성)
+
+- name: current 심볼릭 링크 생성 ({{ tomcat_symlink }} → {{ tomcat_home }})
+  ansible.builtin.file:
+    src: "{{ tomcat_home }}"
+    dest: "{{ tomcat_symlink }}"
+    state: link
+    owner: "{{ tomcat_user }}"
+    group: "{{ tomcat_group }}"
+  # 심볼릭 링크 덕분에 업그레이드 시 서비스 파일의 경로를 변경 안 해도 됨
+  # 업그레이드: 새 버전 설치 후 링크만 변경 → 재시작
+
+- name: Tomcat logs 디렉토리를 심볼릭 링크로 교체 (중앙 로그 디렉토리 사용)
+  ansible.builtin.file:
+    src: "{{ tomcat_log_dir }}"
+    dest: "{{ tomcat_home }}/logs"
+    state: link
+    force: yes
+    owner: "{{ tomcat_user }}"
+    group: "{{ tomcat_group }}"
+  # Tomcat은 기본적으로 자신의 설치 디렉토리 하위 logs/에 로그를 씀
+  # /var/log/tomcat 으로 링크해 중앙에서 관리 (logrotate 적용 편리)
+
+- name: Tomcat 실행 권한 설정
+  ansible.builtin.file:
+    path: "{{ tomcat_home }}/bin/{{ item }}"
+    mode: '0750'
+  loop:
+    - catalina.sh      # Tomcat 시작/정지/실행 스크립트
+    - startup.sh       # catalina.sh start 호출 래퍼
+    - shutdown.sh      # catalina.sh stop 호출 래퍼
+
+# -------------------------------------------------------
+# 4. 방화벽 설정
+# -------------------------------------------------------
+- name: Tomcat HTTP 포트 방화벽 허용 (Nginx에서만 접근)
+  ansible.posix.firewalld:
+    rich_rule: "rule family='ipv4' source address='127.0.0.1' port protocol='tcp' port='{{ tomcat_http_port }}' accept"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  # Tomcat은 Nginx의 reverse proxy 뒤에 있으므로
+  # 외부에 직접 노출하지 않고 127.0.0.1(로컬호스트)에서만 접근 허용

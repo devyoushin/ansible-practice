@@ -1,0 +1,130 @@
+---
+# ================================================================
+# 예제 05: 사용자/그룹 관리 + SSH 키 등록
+# ================================================================
+# 실행 방법:
+#   ansible-playbook -i hosts_example.ini 05_사용자_관리.yml
+# ================================================================
+
+- name: 사용자 및 그룹 관리 예제
+  hosts: all
+  become: true
+
+  vars:
+    # 생성할 그룹 목록
+    user_groups:
+      - name: developers
+        gid: 2001
+      - name: operators
+        gid: 2002
+
+    # 생성할 사용자 목록
+    users:
+      - name: alice
+        groups: [developers, wheel]   # wheel = sudo 권한
+        shell: /bin/bash
+        comment: "Alice Developer"
+        ssh_key: "ssh-rsa AAAA...alice_public_key"  # 실제 키로 교체
+
+      - name: bob
+        groups: [developers]
+        shell: /bin/bash
+        comment: "Bob Developer"
+        ssh_key: ""                   # SSH 키 없음
+
+      - name: deploy
+        groups: [operators]
+        shell: /bin/bash
+        comment: "배포 전용 계정"
+        system: false
+
+    # 삭제할 사용자 목록 (퇴사 등)
+    users_to_remove:
+      - oldemployee
+
+  tasks:
+
+    # ── 그룹 생성 ────────────────────────────────────────────────
+    - name: 그룹 생성
+      group:
+        name: "{{ item.name }}"
+        gid: "{{ item.gid }}"
+        state: present
+      loop: "{{ user_groups }}"
+
+    # ── 사용자 생성 ──────────────────────────────────────────────
+    - name: 사용자 계정 생성
+      user:
+        name: "{{ item.name }}"
+        comment: "{{ item.comment | default('') }}"
+        shell: "{{ item.shell | default('/bin/bash') }}"
+        groups: "{{ item.groups | join(',') }}"
+        append: true        # 기존 그룹 유지하고 추가 (false면 덮어씀)
+        create_home: true
+        state: present
+      loop: "{{ users }}"
+      loop_control:
+        label: "{{ item.name }}"   # 로그에 사용자명만 표시
+
+    # ── SSH 공개키 등록 ──────────────────────────────────────────
+    - name: SSH 공개키 등록
+      authorized_key:
+        user: "{{ item.name }}"
+        key: "{{ item.ssh_key }}"
+        state: present
+      loop: "{{ users }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.ssh_key != ""   # 키 있는 경우만
+
+    # ── sudo 설정 ─────────────────────────────────────────────
+    - name: deploy 계정 패스워드 없이 sudo 허용
+      copy:
+        content: "deploy ALL=(ALL) NOPASSWD: /usr/bin/systemctl, /usr/bin/docker\n"
+        dest: /etc/sudoers.d/deploy
+        mode: "0440"
+        validate: visudo -cf %s   # 문법 검증 후 저장
+
+    # ── 계정 잠금 / 해제 ─────────────────────────────────────────
+    - name: 테스트 계정 잠금 (로그인 비활성화)
+      user:
+        name: testuser
+        password_lock: true    # 비밀번호 잠금 (! 앞에 붙임)
+      failed_when: false        # 계정 없으면 무시
+
+    # ── 계정 삭제 ────────────────────────────────────────────────
+    - name: 퇴사자 계정 삭제
+      user:
+        name: "{{ item }}"
+        state: absent
+        remove: true         # 홈 디렉토리까지 삭제
+        force: true          # 실행 중인 프로세스 있어도 삭제
+      loop: "{{ users_to_remove }}"
+      failed_when: false     # 없는 계정이면 무시
+
+    # ── 생성된 계정 확인 ─────────────────────────────────────────
+    - name: 생성된 사용자 확인
+      command: id "{{ item.name }}"
+      register: user_check
+      changed_when: false
+      failed_when: false
+      loop: "{{ users }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    - name: 계정 정보 출력
+      debug:
+        msg: "{{ item.item.name }}: {{ item.stdout if item.rc == 0 else '생성 실패' }}"
+      loop: "{{ user_check.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    # ── 현재 로그인 중인 사용자 확인 ────────────────────────────
+    - name: 현재 로그인 사용자 목록
+      command: who
+      register: logged_in
+      changed_when: false
+
+    - name: 로그인 현황 출력
+      debug:
+        msg: "현재 로그인: {{ logged_in.stdout_lines | default(['없음']) }}"

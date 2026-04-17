@@ -1,0 +1,17 @@
+# =============================================================
+# dev 환경 - DB 서버(MariaDB) 전용 변수
+# =============================================================
+
+---
+mariadb_max_connections: 50        # dev는 적은 연결로 충분
+mariadb_innodb_buffer_pool_size: "256M"  # dev 서버 RAM이 작으므로 낮게
+mariadb_innodb_buffer_pool_instances: 1
+mariadb_innodb_log_file_size: "64M"
+mariadb_slow_query_log_time: 0.5   # dev에서는 0.5초 이상도 기록 (더 세밀한 추적)
+mariadb_replication_enabled: false  # dev는 복제 불필요
+mariadb_backup_enabled: false       # dev는 백업 불필요
+mariadb_query_cache_type: 0
+mariadb_query_cache_size: "0"
+
+# dev DB 서버는 sysctl 기본값 사용 (common defaults 그대로)
+# prod처럼 별도 오버라이드 불필요

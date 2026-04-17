@@ -1,0 +1,98 @@
+# =============================================================
+# prod 환경 - 앱서버(Spring Boot) 전용 변수
+# 이 파일의 값이 roles/app/defaults/main.yml 보다 우선 적용됨
+# 대상 그룹: [appservers]
+# =============================================================
+
+---
+# -------------------------------------------------------
+# [Java 버전]
+# -------------------------------------------------------
+java_version: "17"
+java_package: "java-17-amazon-corretto"
+
+# -------------------------------------------------------
+# [JVM 메모리 - prod 서버 스펙에 맞게]
+# 서버 스펙: c5.2xlarge (8코어, 16GB RAM) 기준
+# -------------------------------------------------------
+app_jvm_heap_min: "4g"
+# Xms = Xmx 와 동일하게 설정 → 힙 크기가 고정되어 GC 예측성 향상
+# 힙 크기 변동이 없으면 GC가 메모리를 새로 요청/반환하는 오버헤드 없음
+
+app_jvm_heap_max: "4g"
+# RAM 16GB 중 힙에 4GB 할당
+# 나머지 12GB: OS(2GB), 메타스페이스(256MB), 스레드 스택(200스레드×512KB=100MB),
+#               NIO direct buffer, 기타 네이티브 메모리
+
+app_jvm_metaspace_max: "512m"
+# prod는 배포된 라이브러리가 많아 메타스페이스가 더 필요
+# 초기 기동 후 SHOW VARIABLES로 실제 사용량 확인
+
+app_jvm_gc_max_pause: "100"
+# prod API 서버: 100ms 이하 GC 정지 목표
+# SLA 응답 시간의 10% 이하로 설정 권장
+
+app_jvm_gc_region_size: "32m"
+# 힙 4GB에서 G1 Region 크기 32MB 권장
+# 공식: 힙 크기 / 2048 (최솟값 1MB, 최댓값 32MB)
+
+# -------------------------------------------------------
+# [prod JVM 추가 옵션 (GC 로그, 힙 덤프 포함)]
+# -------------------------------------------------------
+app_jvm_gc_log_enabled: true
+app_jvm_heapdump_on_oom: true
+
+app_jvm_opts: >-
+  -Xms{{ app_jvm_heap_min }}
+  -Xmx{{ app_jvm_heap_max }}
+  -XX:MaxMetaspaceSize={{ app_jvm_metaspace_max }}
+  -XX:+UseG1GC
+  -XX:MaxGCPauseMillis={{ app_jvm_gc_max_pause }}
+  -XX:G1HeapRegionSize={{ app_jvm_gc_region_size }}
+  -XX:G1NewSizePercent=20
+  -XX:G1MaxNewSizePercent=30
+  -XX:+G1UseAdaptiveIHOP
+  -Xlog:gc*:file={{ app_log_dir }}/gc.log:time,uptime,level,tags:filecount=10,filesize=20m
+  -XX:+HeapDumpOnOutOfMemoryError
+  -XX:HeapDumpPath={{ app_log_dir }}/heap-dump.hprof
+  -XX:+ExitOnOutOfMemoryError
+  -Djava.security.egd=file:/dev/./urandom
+  -Dfile.encoding=UTF-8
+  -Duser.timezone=Asia/Seoul
+  -XX:+UseContainerSupport
+  -XX:ActiveProcessorCount=8
+
+# -XX:G1NewSizePercent=20: Young Generation 최소 비율 20% (기본 5%)
+#   Young Gen이 너무 작으면 Minor GC 빈발 (잦은 정지)
+# -XX:G1MaxNewSizePercent=30: Young Generation 최대 비율 30%
+# -XX:+G1UseAdaptiveIHOP: Initiating Heap Occupancy Percent 자동 조정
+#   힙 점유율을 기반으로 Mixed GC 시작 시점을 동적으로 결정
+
+# -------------------------------------------------------
+# [내장 Tomcat 스레드 설정 - prod]
+# -------------------------------------------------------
+app_tomcat_max_threads: 400
+# prod 서버 8코어 기준: 코어당 50스레드 = 400
+# I/O 집약적(DB 쿼리, 외부 API) 작업이 많으면 더 높게
+
+app_tomcat_min_spare_threads: 50
+# 최소 50개 스레드는 항상 대기 (순간 트래픽 폭발 대비)
+
+app_tomcat_accept_count: 200
+# 모든 스레드가 바쁠 때 TCP 대기 큐 (200개)
+
+# -------------------------------------------------------
+# [HikariCP - prod]
+# -------------------------------------------------------
+app_hikari_max_pool_size: 30
+# prod 앱서버 3대 × 30 = 90개 → DB max_connections(500) 대비 여유 충분
+
+app_hikari_min_idle: 10
+# 최소 10개 연결 유지 (0으로 줄이지 않음)
+
+# -------------------------------------------------------
+# [Spring Boot 설정 - prod]
+# -------------------------------------------------------
+app_spring_profile: "prod"
+app_health_check_retries: 15    # prod는 더 많은 재시도 (무중단 배포 시 여유)
+app_health_check_delay: 10

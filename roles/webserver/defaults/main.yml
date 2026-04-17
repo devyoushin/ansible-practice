@@ -1,36 +1,143 @@
 # =============================================================
-# webserver 롤 기본 변수
-# terraform-ec2 modules/ec2/variables.tf 와 동일한 역할
+# webserver 롤 기본 변수 (Nginx 설정)
+# 실제 환경별 값은 inventories/{env}/group_vars/webservers.yml 에서 오버라이드
 # =============================================================
 
 ---
-# Nginx 사용자/그룹
-nginx_user: nginx
+# -------------------------------------------------------
+# [기본 계정/포트]
+# -------------------------------------------------------
+nginx_user: nginx        # Nginx 워커 프로세스 실행 계정 (root가 아닌 전용 계정으로 보안 강화)
 nginx_group: nginx
 
-# 포트 설정 (terraform의 ingress_rules port 와 동일한 개념)
-nginx_port: 80
-nginx_ssl_port: 443
+nginx_port: 80           # HTTP 포트
+nginx_ssl_port: 443      # HTTPS 포트 (ssl 롤과 연동)
 
-# 웹 루트 경로
-nginx_root: /var/www/html
+# -------------------------------------------------------
+# [웹 루트 및 서버 이름]
+# -------------------------------------------------------
+nginx_root: /var/www/html              # 정적 파일이 위치하는 기본 디렉토리
+nginx_server_name: "_"                 # "_" = 모든 도메인에 매칭 (가상 호스트 분리 시 변경)
 
-# 워커 설정
+# -------------------------------------------------------
+# [워커 프로세스 설정]
+# Nginx는 멀티 프로세스 구조: 마스터 1개 + 워커 N개
+# -------------------------------------------------------
 nginx_worker_processes: auto
+# auto = CPU 코어 수만큼 자동으로 워커 생성 (AWS c5.xlarge 4코어 → 워커 4개)
+# 수동 지정 시: 코어 수와 동일하게 설정 (그 이상은 의미 없음)
+
 nginx_worker_connections: 1024
+# 워커 프로세스 하나가 동시에 처리할 수 있는 연결 수
+# 전체 최대 동시 연결 = worker_processes × worker_connections
+# 예: 4 × 1024 = 4096개 동시 연결 가능
+# 실제 최대치는 ulimit nofile 설정에도 제한받음
 
-# 업로드 파일 크기 제한
-nginx_client_max_body_size: "10m"
+# -------------------------------------------------------
+# [Rate Limiting - 요청 속도 제한]
+# DDoS, 브루트포스 공격 방어 + 과부하 방지
+# nginx.conf의 http 블록에 zone을 선언하고, location에서 사용
+# -------------------------------------------------------
+nginx_rate_limit_enabled: true
 
-# 타임아웃 설정
+nginx_rate_limit_zones:
+  - name: "api"
+    key: "$binary_remote_addr"        # IP 주소 기준으로 제한 (binary = 메모리 절약)
+    size: "10m"                        # 공유 메모리 10MB (약 16만 개 IP 추적 가능)
+    rate: "10r/s"                      # 초당 10회 요청 허용
+    comment: "API 엔드포인트 과부하 방지"
+
+  - name: "login"
+    key: "$binary_remote_addr"
+    size: "10m"
+    rate: "5r/m"                       # 분당 5회 (로그인 브루트포스 방어)
+    comment: "로그인 브루트포스 방어"
+
+# -------------------------------------------------------
+# [Upstream 연결 풀 (프록시 설정)]
+# Nginx가 앱서버로 요청을 전달할 때 keepalive 연결을 재사용
+# 매 요청마다 TCP handshake를 새로 하지 않아 지연 감소
+# -------------------------------------------------------
+nginx_upstream_enabled: true          # true이면 nginx.conf에 upstream 블록 생성
+nginx_upstream_name: "app_backend"    # upstream 블록 이름 (proxy_pass에서 참조)
+nginx_upstream_keepalive: 32
+# upstream 연결 풀에 유지할 유휴 연결 수
+# 너무 크면 앱서버 파일 디스크립터 고갈, 너무 작으면 효과 없음
+# 앱서버 쓰레드 수의 1/4 ~ 1/2 정도가 적당
+
+# -------------------------------------------------------
+# [Proxy 버퍼 설정]
+# Nginx가 앱서버 응답을 받아서 클라이언트에 전달할 때 사용하는 버퍼
+# 버퍼가 너무 작으면 임시 파일로 스필(spill)되어 디스크 I/O 발생
+# -------------------------------------------------------
+nginx_proxy_buffer_size: "8k"
+# 응답의 첫 번째 부분(헤더)을 담는 버퍼 크기
+# 헤더가 크면(JWT, 쿠키 등) 16k로 늘려야 함
+
+nginx_proxy_buffers_number: 8         # 버퍼 개수
+nginx_proxy_buffers_size: "16k"       # 버퍼 하나의 크기 (총 8 × 16k = 128k)
+nginx_proxy_busy_buffers_size: "32k"  # 클라이언트로 보내는 중인 버퍼 최대 크기
+
+# -------------------------------------------------------
+# [Real IP 설정]
+# Nginx가 LB(HAProxy, ALB) 뒤에 있을 때 실제 클라이언트 IP를 얻기 위한 설정
+# X-Forwarded-For 헤더에서 앞의 IP를 실제 IP로 인식
+# -------------------------------------------------------
+nginx_real_ip_enabled: true
+nginx_real_ip_from:
+  - "10.0.0.0/8"        # 내부 VPC 대역 (LB의 IP 범위)
+  - "172.16.0.0/12"     # 추가 내부 대역
+nginx_real_ip_header: "X-Forwarded-For"   # 실제 IP가 담긴 헤더명
+
+# -------------------------------------------------------
+# [정적 파일 캐시]
+# CSS, JS, 이미지 같은 정적 파일은 브라우저가 캐시하도록 유도
+# CDN 없이도 반복 요청 부하를 줄일 수 있음
+# -------------------------------------------------------
+nginx_static_cache_enabled: true
+nginx_static_cache_days: 30           # 브라우저 캐시 유효 기간 (일)
+# Cache-Control: public, max-age=2592000 (30일) 헤더가 설정됨
+
+# -------------------------------------------------------
+# [타임아웃 설정]
+# -------------------------------------------------------
 nginx_keepalive_timeout: 65
+# 클라이언트와의 keepalive 연결 유지 시간 (초)
+# 65초면 대부분의 HTTP 클라이언트 타임아웃(60초)보다 길어 연결 유지 가능
+
 nginx_send_timeout: 60
+# 클라이언트에게 응답을 보내는 데 허용되는 최대 시간 (초)
+# 이 시간 안에 응답을 전달 못 하면 연결 강제 종료
 
-# 로그 보관 기간
-nginx_log_rotate_days: "{{ log_retention_days | default(30) }}"
+nginx_proxy_connect_timeout: "10s"   # 앱서버 연결 타임아웃
+nginx_proxy_read_timeout: "60s"      # 앱서버 응답 대기 타임아웃
+nginx_proxy_send_timeout: "60s"      # 앱서버로 요청 전송 타임아웃
 
-# 서버 이름 (가상 호스트)
-nginx_server_name: "_"
+# -------------------------------------------------------
+# [요청 크기 제한]
+# -------------------------------------------------------
+nginx_client_max_body_size: "10m"
+# POST/PUT 요청 본문(body) 최대 크기
+# 파일 업로드가 있으면 업로드 최대 크기보다 크게 설정
+# 초과 시 "413 Request Entity Too Large" 응답
 
-# Gzip 압축
+# -------------------------------------------------------
+# [Gzip 압축]
+# 텍스트 기반 응답을 압축해 전송량 감소 (보통 70~80% 절약)
+# 이미지/동영상은 이미 압축되어 있어 효과 없음
+# -------------------------------------------------------
 nginx_gzip_enabled: true
+nginx_gzip_comp_level: 6
+# 압축 레벨 1~9 (높을수록 압축률 ↑, CPU 사용 ↑)
+# 6이 CPU와 압축률의 균형점 (gzip 기본값과 동일)
+
+# -------------------------------------------------------
+# [로그 설정]
+# -------------------------------------------------------
+nginx_log_rotate_days: "{{ log_retention_days | default(30) }}"
+# 로그 보관 일수 (group_vars/all.yml의 log_retention_days 참조)
+# prod: 90일, dev: 30일
+
+nginx_access_log_format: "json"
+# "main" = 전통적인 combined 형식 (텍스트)
+# "json" = JSON 형식 (Elasticsearch/Splunk 연동 시 파싱 불필요)

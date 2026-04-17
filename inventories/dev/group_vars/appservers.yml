@@ -1,0 +1,27 @@
+# =============================================================
+# dev 환경 - 앱서버(Spring Boot) 전용 변수
+# =============================================================
+
+---
+java_version: "17"
+java_package: "java-17-amazon-corretto"
+
+# dev 서버는 작은 인스턴스 (t3.medium: 2코어, 4GB RAM)
+app_jvm_heap_min: "256m"
+app_jvm_heap_max: "512m"
+app_jvm_metaspace_max: "256m"
+app_jvm_gc_max_pause: "500"        # dev는 응답시간 기준 느슨하게
+app_jvm_gc_region_size: "4m"       # 힙 512MB 기준 Region 4MB
+app_jvm_gc_log_enabled: true       # dev도 GC 로그 켜서 학습/분석 가능
+app_jvm_heapdump_on_oom: false     # dev는 OOM 발생 시 그냥 재시작
+
+app_tomcat_max_threads: 50         # dev는 트래픽 적으므로 50개면 충분
+app_tomcat_min_spare_threads: 5
+app_tomcat_accept_count: 20
+
+app_hikari_max_pool_size: 5        # dev는 연결 5개로 충분
+app_hikari_min_idle: 2
+
+app_spring_profile: "dev"
+app_health_check_retries: 10
+app_health_check_delay: 5          # dev는 기동이 빠르므로 짧게

@@ -1,0 +1,105 @@
+---
+# ================================================================
+# 예제 02: 패키지 설치
+# ================================================================
+# 실행 방법:
+#   ansible-playbook -i hosts_example.ini 02_패키지_설치.yml
+#
+# 특정 태그만 실행:
+#   ansible-playbook -i hosts_example.ini 02_패키지_설치.yml --tags essential
+# ================================================================
+
+- name: 패키지 설치 예제
+  hosts: all
+  become: true    # sudo 권한 사용
+
+  vars:
+    # 필수 패키지 목록 (서버 공통)
+    essential_packages:
+      - curl
+      - wget
+      - vim
+      - git
+      - unzip
+      - tree
+      - htop
+
+    # 웹서버용 추가 패키지
+    web_packages:
+      - nginx
+      - firewalld
+
+    # 개발 도구
+    dev_packages:
+      - gcc
+      - make
+      - python3-pip
+
+  tasks:
+
+    # ── OS 감지 ─────────────────────────────────────────────────
+    - name: OS 정보 출력
+      debug:
+        msg: "OS: {{ ansible_distribution }} {{ ansible_distribution_major_version }}"
+
+    # ── 필수 패키지 설치 ─────────────────────────────────────────
+    - name: 필수 패키지 설치 (RHEL/Rocky)
+      dnf:
+        name: "{{ essential_packages }}"
+        state: present
+      when: ansible_os_family == "RedHat"
+      tags: [essential]
+
+    - name: 필수 패키지 설치 (Ubuntu/Debian)
+      apt:
+        name: "{{ essential_packages }}"
+        state: present
+        update_cache: true
+      when: ansible_os_family == "Debian"
+      tags: [essential]
+
+    # ── 단일 패키지 최신 버전으로 업데이트 ─────────────────────
+    - name: git 최신 버전으로 업데이트
+      dnf:
+        name: git
+        state: latest    # present=설치만, latest=최신으로 업데이트
+      when: ansible_os_family == "RedHat"
+      tags: [update]
+
+    # ── 패키지 제거 예시 ─────────────────────────────────────────
+    - name: 불필요한 패키지 제거
+      dnf:
+        name:
+          - telnet         # 보안상 제거
+          - rsh            # 보안상 제거
+        state: absent
+      when: ansible_os_family == "RedHat"
+      failed_when: false   # 없어도 오류 무시
+      tags: [remove]
+
+    # ── 패키지 설치 확인 ─────────────────────────────────────────
+    - name: 패키지 설치 결과 확인
+      command: rpm -q "{{ item }}"
+      loop: "{{ essential_packages }}"
+      register: pkg_check
+      changed_when: false
+      failed_when: false
+      when: ansible_os_family == "RedHat"
+      tags: [verify]
+
+    - name: 설치 결과 출력
+      debug:
+        msg: "{{ item.item }}: {{ '설치됨' if item.rc == 0 else '미설치' }}"
+      loop: "{{ pkg_check.results | default([]) }}"
+      when: pkg_check.results is defined
+      tags: [verify]
+
+    # ── 웹 패키지 설치 (webservers 그룹만) ─────────────────────
+    - name: 웹서버 패키지 설치
+      dnf:
+        name: "{{ web_packages }}"
+        state: present
+      when:
+        - ansible_os_family == "RedHat"
+        - "'webservers' in group_names"    # webservers 그룹에 속한 경우만
+      tags: [web]

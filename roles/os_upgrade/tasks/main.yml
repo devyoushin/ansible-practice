@@ -30,6 +30,13 @@
   when: os_upgrade_backup_enabled | bool
   tags: [os_upgrade, backup]
 
+- name: "[2.5단계] 보안솔루션 사전 처리 (커널 모듈 충돌 → 패닉 방지)"
+  # 보안솔루션 서비스 중지 + 커널 모듈 blacklist + 패닉 자동 복구 설정
+  # 이 단계를 건너뛰면 업그레이드 후 재부팅 시 커널 패닉 발생 가능
+  import_tasks: security_solution.yml
+  when: os_upgrade_security_solution_enabled | bool
+  tags: [os_upgrade, security_solution]
+
 - name: "[3단계-A] RHEL 업그레이드 (leapp)"
   import_tasks: leapp_rhel.yml
   when: ansible_distribution == "RedHat"
@@ -43,3 +50,10 @@
 - name: "[4단계] 업그레이드 후 검증"
   import_tasks: postcheck.yml
   tags: [os_upgrade, postcheck]
+
+- name: "[5단계] 보안솔루션 복원 (blacklist 해제 + 서비스 재활성화)"
+  # 업그레이드 완료 후 보안 모듈 blacklist 제거 및 서비스 재기동 시도
+  # 서비스 기동 실패 시 벤더의 새 OS 버전 호환 패키지 설치 필요
+  import_tasks: security_solution_restore.yml
+  when: os_upgrade_security_solution_enabled | bool
+  tags: [os_upgrade, security_restore]

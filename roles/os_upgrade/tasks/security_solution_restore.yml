@@ -1,0 +1,157 @@
+---
+# security_solution_restore.yml — 업그레이드 완료 후 보안솔루션 복원
+#
+# 실행 시점: 업그레이드 + 재부팅 + 사후검증 완료 후
+# 역할:
+#   1. 커널 모듈 blacklist 제거
+#   2. 새 커널용 initramfs 재생성
+#   3. 보안솔루션 서비스 재활성화 (신규 버전이 설치된 경우)
+#   4. 보안솔루션 버전 호환성 검증
+
+# ── 1. blacklist 제거 ─────────────────────────────────────────────────────────
+
+- name: "[복원] 보안 모듈 blacklist 파일 존재 확인"
+  stat:
+    path: /etc/modprobe.d/os-upgrade-security-blacklist.conf
+  register: blacklist_file
+  tags: [security_restore]
+
+- name: "[복원] 업그레이드 전 탐지된 보안 모듈 목록 읽기"
+  slurp:
+    src: "{{ os_upgrade_backup_dir }}/security_solution_detected.txt"
+  register: detected_sec_raw
+  failed_when: false
+  tags: [security_restore]
+
+- name: "[복원] 커널 모듈 blacklist 제거"
+  file:
+    path: /etc/modprobe.d/os-upgrade-security-blacklist.conf
+    state: absent
+  when: blacklist_file.stat.exists
+  register: blacklist_removed
+  tags: [security_restore]
+
+- name: "[복원] blacklist 제거 후 initramfs 재생성 (새 커널 반영)"
+  command: dracut --force --regenerate-all
+  changed_when: true
+  async: 300
+  poll: 10
+  when: blacklist_removed.changed | default(false)
+  tags: [security_restore]
+
+# ── 2. 새 OS 버전 커널 모듈 호환성 검증 ─────────────────────────────────────
+# 보안솔루션이 새 커널 버전용 모듈을 제공하는지 확인 후에만 서비스 재기동
+
+- name: "[복원] 현재 구동 중인 커널 버전 확인"
+  command: uname -r
+  register: current_kernel_version
+  changed_when: false
+  tags: [security_restore]
+
+- name: "[복원] 현재 커널용 보안 모듈 존재 여부 확인"
+  shell: |
+    found_modules=()
+    kernel_ver="{{ current_kernel_version.stdout }}"
+    for mod in {{ os_upgrade_known_security_modules | join(' ') }}; do
+      module_path="/lib/modules/${kernel_ver}/extra/${mod}.ko"
+      module_path2="/lib/modules/${kernel_ver}/kernel/drivers/${mod}.ko"
+      module_path3=$(find /lib/modules/${kernel_ver} -name "${mod}.ko*" 2>/dev/null | head -1)
+      if [ -n "$module_path3" ]; then
+        found_modules+=("${mod}: 발견 (${module_path3})")
+      else
+        found_modules+=("${mod}: 없음 (신규 버전 설치 필요)")
+      fi
+    done
+    printf '%s\n' "${found_modules[@]}"
+  register: module_compat_check
+  changed_when: false
+  failed_when: false
+  tags: [security_restore]
+
+- name: "[복원] 모듈 호환성 확인 결과 출력"
+  debug:
+    msg:
+      - "=== 보안 모듈 호환성 검사 (커널: {{ current_kernel_version.stdout }}) ==="
+      - "{{ module_compat_check.stdout_lines }}"
+  tags: [security_restore]
+
+# ── 3. 호환되는 경우에만 서비스 재활성화 ────────────────────────────────────
+
+- name: "[복원] 보안솔루션 서비스 재활성화 가능 여부 확인"
+  shell: systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}'
+  register: all_services_after_upgrade
+  changed_when: false
+  tags: [security_restore]
+
+- name: "[복원] 알려진 보안솔루션 서비스 중 존재하는 것만 필터링"
+  set_fact:
+    security_services_to_restore: >-
+      {{ os_upgrade_known_security_services | select('in', all_services_after_upgrade.stdout) | list }}
+  tags: [security_restore]
+
+- name: "[복원] 보안솔루션 서비스 재활성화 (모듈 호환 확인된 경우만)"
+  systemd:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+    daemon_reload: true
+  loop: "{{ security_services_to_restore }}"
+  failed_when: false
+  register: sec_restore_result
+  when: os_upgrade_restore_security_services | bool
+  tags: [security_restore]
+
+- name: "[복원] 서비스 복원 결과 출력"
+  debug:
+    msg:
+      - "서비스: {{ item.item }}"
+      - "상태: {{ '기동 성공' if not item.failed else '기동 실패 — 신규 버전 설치 필요' }}"
+  loop: "{{ sec_restore_result.results | default([]) }}"
+  when: sec_restore_result.results is defined
+  tags: [security_restore]
+
+# ── 4. 복원 후 검증 ───────────────────────────────────────────────────────────
+
+- name: "[복원] 업그레이드 후 Failed 서비스 재확인"
+  command: systemctl --failed --no-legend
+  register: failed_after_restore
+  changed_when: false
+  failed_when: false
+  tags: [security_restore]
+
+- name: "[복원] Failed 서비스 목록 출력"
+  debug:
+    msg:
+      - "⚠️  아직 failed 서비스 있음 — 수동 확인 필요:"
+      - "{{ failed_after_restore.stdout_lines }}"
+  when: failed_after_restore.stdout != ""
+  tags: [security_restore]
+
+- name: "[복원] sysctl 패닉 설정 영구 유지 여부 결정"
+  # 업그레이드 완료 후에도 패닉 자동 재부팅은 유지하는 것을 권장
+  debug:
+    msg:
+      - "커널 패닉 자동 재부팅 설정은 유지됩니다."
+      - "파일: /etc/sysctl.d/99-os-upgrade-panic.conf"
+      - "제거 원하면: rm /etc/sysctl.d/99-os-upgrade-panic.conf && sysctl --system"
+  tags: [security_restore]
+
+- name: "[복원] 보안솔루션 신규 버전 설치 필요 안내"
+  debug:
+    msg:
+      - "============================================"
+      - "보안솔루션 신규 버전 설치 필요 여부 확인"
+      - "============================================"
+      - "커널: {{ current_kernel_version.stdout }}"
+      - ""
+      - "기동 실패 서비스가 있다면 벤더에서 새 OS 버전 호환"
+      - "패키지를 받아 재설치해야 합니다:"
+      - ""
+      - "  AhnLab V3:    v3net, v3uds → RHEL {{ os_upgrade_target_version }} 전용 RPM"
+      - "  CrowdStrike:  falcon-sensor → CS Support 최신 버전"
+      - "  McAfee/Trellix: mfetpd    → ENS for Linux 최신 패키지"
+      - "  Trend Micro:  ds_agent    → Deep Security Agent 최신 버전"
+      - ""
+      - "재설치 후: systemctl enable --now <서비스명>"
+      - "============================================"
+  tags: [security_restore]

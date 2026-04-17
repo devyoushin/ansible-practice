@@ -1,21 +1,35 @@
 # =============================================================
 # 프로덕션(prod) 환경 공통 변수
+# 모든 그룹(webservers, appservers, dbservers, monitoring)에 적용됨
+# 그룹별 세부 변수는 group_vars/{그룹명}.yml 에서 오버라이드
 # =============================================================
 
+---
+# -------------------------------------------------------
+# [프로젝트 메타 정보]
+# 모든 서버의 태그, 모니터링 레이블, 알림 메시지에 사용됨
+# -------------------------------------------------------
 project: "ansible-practice"
-environment: "prod"
-owner: "sunny"
-managed_by: "ansible"
+environment: "prod"        # 환경 구분 (dev/staging/prod)
+owner: "sunny"             # 운영 담당자 (알림 메시지에 포함)
+managed_by: "ansible"      # 자동화 도구 명시 (수동 수정 방지 목적)
 
-aws_region: "ap-northeast-2"
-vpc_cidr: "10.0.0.0/16"
+aws_region: "ap-northeast-2"       # 서울 리전
+vpc_cidr: "10.0.0.0/16"           # prod VPC CIDR
 
+# -------------------------------------------------------
+# [NTP 서버]
+# -------------------------------------------------------
 ntp_servers:
-  - "169.254.169.123"
-  - "time.google.com"
+  - "169.254.169.123"   # AWS Time Sync Service (지연 최소, EC2 전용)
+  - "time.google.com"   # 백업 NTP
 
-timezone: "Asia/Seoul"
+timezone: "Asia/Seoul"   # KST (UTC+9)
 
+# -------------------------------------------------------
+# [공통 패키지]
+# prod에서는 디버깅 도구 최소화 (보안 및 공격 표면 축소)
+# -------------------------------------------------------
 common_packages:
   - vim
   - curl
@@ -24,10 +38,71 @@ common_packages:
   - git
   - htop
   - net-tools
+  - lsof
+  - sysstat      # sar, iostat - 성능 분석 도구 (prod에서도 필수)
+  - strace       # 시스템 콜 추적 (장애 분석, prod에서는 필요 시만 사용)
 
+# -------------------------------------------------------
+# [SSH 보안 설정]
+# -------------------------------------------------------
 ssh_port: 22
 ssh_allow_users: "ec2-user"
-ssh_password_authentication: "no"
+ssh_password_authentication: "no"   # 키 인증만 허용
 ssh_permit_root_login: "no"
+ssh_max_auth_tries: 3               # 3회 실패 시 연결 끊음
+ssh_client_alive_interval: 300      # 5분 유휴 시 keepalive probe
+ssh_client_alive_count_max: 2       # 2회 probe 실패 시 연결 종료
 
+# -------------------------------------------------------
+# [로그 보관 기간]
+# prod는 규정 준수, 감사를 위해 90일 보관
+# -------------------------------------------------------
 log_retention_days: 90
+
+# -------------------------------------------------------
+# [THP 비활성화]
+# prod 전체 서버에서 비활성화 (Redis, MariaDB 성능 보호)
+# -------------------------------------------------------
+disable_thp: true
+
+# -------------------------------------------------------
+# [sysctl 기본 설정 (공통)]
+# 그룹별 오버라이드: group_vars/dbservers.yml 에서 vm.swappiness=1 등 추가
+# -------------------------------------------------------
+sysctl_settings:
+  - name: "net.core.somaxconn"
+    value: "65535"
+  - name: "net.ipv4.tcp_max_syn_backlog"
+    value: "65535"
+  - name: "net.core.netdev_max_backlog"
+    value: "65535"
+  - name: "net.ipv4.tcp_fin_timeout"
+    value: "15"
+  - name: "net.ipv4.tcp_tw_reuse"
+    value: "1"
+  - name: "net.ipv4.tcp_keepalive_time"
+    value: "300"
+  - name: "net.ipv4.tcp_keepalive_intvl"
+    value: "30"
+  - name: "net.ipv4.tcp_keepalive_probes"
+    value: "3"
+  - name: "net.ipv4.ip_local_port_range"
+    value: "10240 65535"
+  - name: "net.ipv4.tcp_rmem"
+    value: "4096 87380 16777216"
+  - name: "net.ipv4.tcp_wmem"
+    value: "4096 65536 16777216"
+  - name: "net.core.rmem_max"
+    value: "16777216"
+  - name: "net.core.wmem_max"
+    value: "16777216"
+  - name: "fs.file-max"
+    value: "2097152"
+  - name: "vm.swappiness"
+    value: "10"
+  - name: "vm.dirty_ratio"
+    value: "20"
+  - name: "vm.dirty_background_ratio"
+    value: "5"
+  - name: "kernel.pid_max"
+    value: "65536"

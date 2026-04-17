@@ -1,0 +1,321 @@
+---
+# security_solution.yml — 업그레이드 전 보안솔루션 안전 처리
+#
+# 문제 시나리오 (실제 발생 케이스):
+#   보안솔루션 커널 모듈 → 업그레이드 후 새 커널과 충돌
+#   → systemd 부팅 실패 → 재부팅 → 커널 패닉
+#
+# 해결 전략:
+#   1. 보안솔루션 탐지 (에이전트 + 커널 모듈)
+#   2. 서비스 graceful stop
+#   3. 커널 모듈 unload + blacklist 등록
+#   4. 커널 패닉 자동 복구 설정 (panic=60, rescue 커널 부트엔트리 보장)
+#   5. 업그레이드 후 복구 가이드 저장
+#
+# 지원 보안솔루션 (한국 엔터프라이즈 환경 기준):
+#   - AhnLab V3 (v3net, v3d, v3uds)
+#   - HAURI ViRobot (vrsd)
+#   - CrowdStrike Falcon (falcon-sensor)
+#   - McAfee/Trellix (mfetpd, mfehidd)
+#   - Trend Micro Deep Security (ds_agent)
+#   - Symantec/Broadcom SEP (sepfe, rtvscand)
+#   - Carbon Black (cbdaemon)
+
+# ── 1. 보안솔루션 탐지 ────────────────────────────────────────────────────────
+
+- name: "[보안솔루션] 설치된 보안 패키지 탐지"
+  shell: >
+    rpm -qa --queryformat '%{NAME}\n' 2>/dev/null |
+    grep -Ei 'v3net|v3agent|ahnlab|virrobot|hauri|falcon-sensor|mfetpd|McAfeeTP|ds_agent|sep|cbdefense|carbonblack|trendmicro' || true
+  register: sec_packages_found
+  changed_when: false
+  tags: [security_solution]
+
+- name: "[보안솔루션] 실행 중인 보안 서비스 탐지"
+  shell: |
+    systemctl list-units --type=service --state=running --no-legend 2>/dev/null |
+    grep -Ei 'v3|virrobot|falcon|mfetpd|mfehidd|ds_agent|sepfe|rtvscan|cbdaemon|imafd|symantec' |
+    awk '{print $1}' || true
+  register: sec_services_found
+  changed_when: false
+  tags: [security_solution]
+
+- name: "[보안솔루션] 로드된 보안 커널 모듈 탐지"
+  shell: |
+    lsmod 2>/dev/null |
+    grep -Ei '^v3|^mfe|^falcon|^cb|^sep|^symev|^eesets|^vrsd|^hauri' |
+    awk '{print $1}' || true
+  register: sec_modules_found
+  changed_when: false
+  tags: [security_solution]
+
+- name: "[보안솔루션] 탐지 결과 출력"
+  debug:
+    msg:
+      - "=== 보안솔루션 탐지 결과 ==="
+      - "패키지: {{ sec_packages_found.stdout_lines | default([]) }}"
+      - "서비스: {{ sec_services_found.stdout_lines | default([]) }}"
+      - "커널 모듈: {{ sec_modules_found.stdout_lines | default([]) }}"
+  tags: [security_solution]
+
+- name: "[보안솔루션] 탐지 결과를 백업 디렉토리에 저장"
+  copy:
+    content: |
+      === 업그레이드 전 보안솔루션 탐지 결과 ===
+      날짜: {{ ansible_date_time.iso8601 }}
+      호스트: {{ inventory_hostname }}
+
+      [설치된 패키지]
+      {{ sec_packages_found.stdout | default('없음') }}
+
+      [실행 중인 서비스]
+      {{ sec_services_found.stdout | default('없음') }}
+
+      [로드된 커널 모듈]
+      {{ sec_modules_found.stdout | default('없음') }}
+    dest: "{{ os_upgrade_backup_dir }}/security_solution_detected.txt"
+    mode: "0640"
+  tags: [security_solution]
+
+# ── 2. 보안 서비스 graceful stop ──────────────────────────────────────────────
+# 재부팅 후 자동 재시작도 방지 (disable) → 업그레이드 후 복원 예정
+
+- name: "[보안솔루션] 탐지된 서비스 목록으로 변수 설정"
+  set_fact:
+    # 탐지된 서비스 + 알려진 보안솔루션 서비스 전체 목록 병합
+    security_services_to_stop: "{{ (sec_services_found.stdout_lines | default([])) +
+      os_upgrade_known_security_services }}"
+  tags: [security_solution]
+
+- name: "[보안솔루션] 서비스 존재 여부 확인"
+  shell: systemctl list-unit-files --type=service --no-legend 2>/dev/null | awk '{print $1}'
+  register: all_installed_services
+  changed_when: false
+  tags: [security_solution]
+
+- name: "[보안솔루션] 실제 존재하는 보안 서비스만 필터링"
+  set_fact:
+    security_services_present: >-
+      {{ security_services_to_stop | select('in', all_installed_services.stdout) | list }}
+  tags: [security_solution]
+
+- name: "[보안솔루션] 서비스 중지 및 disable (업그레이드 중 재시작 방지)"
+  systemd:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop: "{{ security_services_present }}"
+  failed_when: false   # 이미 중지되어 있어도 오류 무시
+  register: sec_service_stop_result
+  tags: [security_solution]
+
+- name: "[보안솔루션] 서비스 중지 결과 출력"
+  debug:
+    msg: "중지 완료: {{ item.item }} (결과: {{ 'OK' if not item.failed else 'SKIP/이미중지' }})"
+  loop: "{{ sec_service_stop_result.results | default([]) }}"
+  when: sec_service_stop_result.results is defined
+  tags: [security_solution]
+
+# ── 3. 커널 모듈 Unload + Blacklist ──────────────────────────────────────────
+# 핵심: 업그레이드 후 새 커널이 구버전 보안 모듈을 로드하면 패닉 발생
+# 대책: 업그레이드 완료 후 재부팅 전까지 모듈을 blacklist에 등록
+
+- name: "[보안솔루션] 탐지된 커널 모듈 unload"
+  command: modprobe -r {{ item }}
+  loop: "{{ sec_modules_found.stdout_lines | default([]) }}"
+  failed_when: false   # 이미 언로드됐거나 의존성 있어도 계속 진행
+  changed_when: true
+  tags: [security_solution]
+
+- name: "[보안솔루션] 알려진 보안 모듈 전체 unload 시도"
+  command: modprobe -r {{ item }}
+  loop: "{{ os_upgrade_known_security_modules }}"
+  failed_when: false
+  changed_when: true
+  tags: [security_solution]
+
+- name: "[보안솔루션] blacklist 파일 생성 (재부팅 시 자동 로드 차단)"
+  copy:
+    content: |
+      # Ansible OS 업그레이드 중 보안솔루션 커널 모듈 blacklist
+      # 생성일: {{ ansible_date_time.iso8601 }}
+      # 업그레이드 완료 후 security_solution_restore.yml 실행 시 자동 제거됨
+      #
+      # 이 파일이 없으면 업그레이드 후 새 커널 부팅 시 구버전 모듈 로드 시도
+      # → systemd 기동 실패 → 재부팅 → 커널 패닉 발생 가능
+
+      {% for mod in (sec_modules_found.stdout_lines | default([])) + os_upgrade_known_security_modules %}
+      blacklist {{ mod }}
+      install {{ mod }} /bin/true
+      {% endfor %}
+    dest: /etc/modprobe.d/os-upgrade-security-blacklist.conf
+    mode: "0644"
+  tags: [security_solution]
+
+- name: "[보안솔루션] initramfs 재생성 (blacklist 적용 반영)"
+  command: dracut --force --regenerate-all
+  changed_when: true
+  async: 300
+  poll: 10
+  tags: [security_solution]
+
+# ── 4. leapp inhibitor 대응 ── 보안솔루션 서드파티 모듈 ──────────────────────
+# leapp은 서드파티 커널 모듈을 inhibitor로 탐지함 → 사전에 처리 필요
+
+- name: "[보안솔루션] leapp 설치 여부 확인"
+  stat:
+    path: /usr/bin/leapp
+  register: leapp_installed
+  tags: [security_solution]
+
+- name: "[보안솔루션] leapp 서드파티 모듈 예외 목록에 보안 모듈 추가"
+  shell: |
+    {% for mod in (sec_modules_found.stdout_lines | default([])) + os_upgrade_known_security_modules %}
+    leapp answer --section check_thirdparty_kmod.{{ mod }}.confirm=True 2>/dev/null || true
+    {% endfor %}
+    echo "leapp 예외 처리 완료"
+  changed_when: true
+  failed_when: false
+  when: leapp_installed.stat.exists
+  tags: [security_solution]
+
+# ── 5. 커널 패닉 자동 복구 설정 ──────────────────────────────────────────────
+# 패닉 발생 시 수동 개입 없이 자동 재부팅 → 구버전 커널로 fallback 가능하도록
+
+- name: "[커널패닉] sysctl — 패닉 시 자동 재부팅 설정"
+  sysctl:
+    name: "{{ item.name }}"
+    value: "{{ item.value }}"
+    sysctl_file: /etc/sysctl.d/99-os-upgrade-panic.conf
+    reload: true
+  loop:
+    - { name: kernel.panic,          value: "{{ os_upgrade_kernel_panic_timeout }}" }
+    - { name: kernel.panic_on_oops,  value: "1" }
+    - { name: kernel.softlockup_panic, value: "1" }
+  tags: [security_solution, kernel_panic]
+
+- name: "[커널패닉] GRUB 타임아웃 확인 (구버전 커널 선택 가능성 보장)"
+  shell: grep -E '^GRUB_TIMEOUT=' /etc/default/grub | cut -d= -f2
+  register: grub_timeout_current
+  changed_when: false
+  tags: [security_solution, kernel_panic]
+
+- name: "[커널패닉] GRUB 타임아웃이 너무 짧으면 10초로 확장"
+  # 타임아웃이 0이면 패닉 후 재부팅 시 메뉴 선택 불가 → 강제로 10초 확보
+  replace:
+    path: /etc/default/grub
+    regexp: '^GRUB_TIMEOUT=.*'
+    replace: 'GRUB_TIMEOUT={{ os_upgrade_grub_timeout }}'
+  when: (grub_timeout_current.stdout | default("5") | int) < os_upgrade_grub_timeout | int
+  register: grub_timeout_changed
+  tags: [security_solution, kernel_panic]
+
+- name: "[커널패닉] GRUB 메뉴 숨김 해제 (패닉 후 커널 선택 가능하도록)"
+  replace:
+    path: /etc/default/grub
+    regexp: '^GRUB_TERMINAL_OUTPUT=.*console.*'
+    replace: 'GRUB_TERMINAL_OUTPUT="console"'
+  failed_when: false
+  tags: [security_solution, kernel_panic]
+
+- name: "[커널패닉] grub2-mkconfig 재생성"
+  command: grub2-mkconfig -o /boot/grub2/grub.cfg
+  changed_when: true
+  when: grub_timeout_changed.changed | default(false)
+  tags: [security_solution, kernel_panic]
+
+- name: "[커널패닉] 설치된 커널 목록 확인 (fallback 커널 존재 여부)"
+  shell: rpm -q kernel --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V
+  register: installed_kernels
+  changed_when: false
+  tags: [security_solution, kernel_panic]
+
+- name: "[커널패닉] 커널이 1개뿐이면 경고 (fallback 불가)"
+  debug:
+    msg:
+      - "⚠️  [경고] 설치된 커널이 1개뿐입니다: {{ installed_kernels.stdout_lines }}"
+      - "업그레이드 후 패닉 발생 시 fallback 커널이 없습니다."
+      - "권장: 이전 버전 커널 1개 추가 유지 또는 BMC/IPMI 콘솔 접근 확보"
+  when: installed_kernels.stdout_lines | length < 2
+  tags: [security_solution, kernel_panic]
+
+- name: "[커널패닉] 커널 목록 및 fallback 구성 출력"
+  debug:
+    msg:
+      - "설치된 커널 ({{ installed_kernels.stdout_lines | length }}개):"
+      - "{{ installed_kernels.stdout_lines }}"
+      - "패닉 자동 재부팅: {{ os_upgrade_kernel_panic_timeout }}초 후"
+  tags: [security_solution, kernel_panic]
+
+# ── 6. 복구 절차 문서 자동 생성 ──────────────────────────────────────────────
+
+- name: "[문서] 업그레이드 후 보안솔루션 복구 가이드 생성"
+  copy:
+    content: |
+      ================================================================
+      OS 업그레이드 후 보안솔루션 복구 가이드
+      ================================================================
+      생성일: {{ ansible_date_time.iso8601 }}
+      호스트: {{ inventory_hostname }}
+      업그레이드: RHEL/Rocky {{ ansible_distribution_major_version }} → {{ os_upgrade_target_version }}
+
+      ── 업그레이드 전 처리된 항목 ──────────────────────────────────
+      [커널 모듈 blacklist]
+      파일: /etc/modprobe.d/os-upgrade-security-blacklist.conf
+      대상: {{ (sec_modules_found.stdout_lines | default([])) + os_upgrade_known_security_modules }}
+
+      [중지된 서비스]
+      {{ security_services_present | default([]) | join('\n') }}
+
+      ── 업그레이드 완료 후 필수 복구 절차 ─────────────────────────
+      1. Ansible로 자동 복구 (권장):
+         ansible-playbook -i <inventory> playbooks/os_upgrade.yml \
+           --tags security_restore -l {{ inventory_hostname }}
+
+      2. 수동 복구 (Ansible 불가 시):
+         # blacklist 제거
+         rm /etc/modprobe.d/os-upgrade-security-blacklist.conf
+         dracut --force --regenerate-all
+
+         # 보안솔루션 신규 버전 설치 (벤더 제공 RHEL {{ os_upgrade_target_version }} 호환 패키지)
+         # AhnLab: https://www.ahnlab.com/kr/site/support/
+         # CrowdStrike: falcon-sensor 최신 버전 (CS Support)
+         # McAfee/Trellix: ENS 최신 패키지
+
+         # 서비스 재활성화
+         systemctl enable --now <서비스명>
+
+      ── 커널 패닉 발생 시 복구 절차 ────────────────────────────────
+      증상: 재부팅 후 "Kernel panic - not syncing" 화면
+
+      1. 서버 콘솔(BMC/IPMI/iDRAC/iLO) 접속
+      2. 재부팅 후 GRUB 메뉴에서 이전 커널 선택 ({{ installed_kernels.stdout_lines | first | default('이전 커널') }})
+      3. 구버전 커널로 부팅 후:
+         a. 보안솔루션 제거: systemctl stop <서비스> && dnf remove <패키지>
+         b. blacklist 파일 삭제: rm /etc/modprobe.d/os-upgrade-security-blacklist.conf
+         c. dracut --force --regenerate-all
+         d. 재부팅 → 새 커널로 정상 부팅 확인
+         e. 보안솔루션 신규 버전 설치
+
+      ── 자동 재부팅 설정 ────────────────────────────────────────────
+      커널 패닉 시 {{ os_upgrade_kernel_panic_timeout }}초 후 자동 재부팅
+      설정파일: /etc/sysctl.d/99-os-upgrade-panic.conf
+
+      ================================================================
+    dest: "{{ os_upgrade_backup_dir }}/RECOVERY_GUIDE.txt"
+    mode: "0640"
+  tags: [security_solution]
+
+- name: "[보안솔루션] 사전 처리 완료 요약"
+  debug:
+    msg:
+      - "============================================"
+      - "보안솔루션 사전 처리 완료"
+      - "============================================"
+      - "탐지된 패키지: {{ sec_packages_found.stdout_lines | length }}개"
+      - "중지된 서비스: {{ security_services_present | default([]) | length }}개"
+      - "모듈 blacklist: {{ (sec_modules_found.stdout_lines | default([])) + os_upgrade_known_security_modules | length }}개"
+      - "커널 패닉 자동 재부팅: {{ os_upgrade_kernel_panic_timeout }}초"
+      - "복구 가이드: {{ os_upgrade_backup_dir }}/RECOVERY_GUIDE.txt"
+      - "============================================"
+  tags: [security_solution]

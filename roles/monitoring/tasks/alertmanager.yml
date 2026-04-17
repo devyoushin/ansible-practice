@@ -1,0 +1,141 @@
+# =============================================================
+# Alertmanager 설치 및 설정
+# Prometheus alert → Slack/Email 알림 발송 담당
+# monitoring 서버에만 설치됨
+# =============================================================
+
+---
+# -------------------------------------------------------
+# 1. 시스템 계정 생성
+# -------------------------------------------------------
+- name: alertmanager 전용 시스템 계정 생성
+  ansible.builtin.user:
+    name: "{{ alertmanager_user }}"
+    system: yes              # 시스템 계정 (로그인 불가, UID < 1000)
+    shell: /sbin/nologin     # 로그인 쉘 없음 (보안 강화)
+    create_home: no          # 홈 디렉토리 불필요
+    comment: "Alertmanager system user"
+
+# -------------------------------------------------------
+# 2. 필요 디렉토리 생성
+# -------------------------------------------------------
+- name: Alertmanager 디렉토리 생성
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ alertmanager_user }}"
+    group: "{{ alertmanager_user }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ alertmanager_config_dir }}", mode: "0755" }
+    # 설정 파일 디렉토리 (alertmanager.yml)
+    - { path: "{{ alertmanager_data_dir }}", mode: "0755" }
+    # 알림 상태 저장 디렉토리 (silences, notification logs)
+    - { path: "/opt/alertmanager", mode: "0755" }
+    # 바이너리 설치 디렉토리
+
+# -------------------------------------------------------
+# 3. Alertmanager 바이너리 다운로드 및 설치
+# -------------------------------------------------------
+- name: Alertmanager 다운로드 여부 확인
+  ansible.builtin.stat:
+    path: /usr/local/bin/alertmanager
+  register: alertmanager_binary
+  # 이미 설치되어 있으면 다운로드 스킵 (멱등성)
+
+- name: Alertmanager 바이너리 다운로드
+  ansible.builtin.get_url:
+    url: "https://github.com/prometheus/alertmanager/releases/download/v{{ alertmanager_version }}/alertmanager-{{ alertmanager_version }}.linux-amd64.tar.gz"
+    dest: "/tmp/alertmanager-{{ alertmanager_version }}.tar.gz"
+    mode: '0644'
+  when: not alertmanager_binary.stat.exists
+
+- name: Alertmanager 압축 해제
+  ansible.builtin.unarchive:
+    src: "/tmp/alertmanager-{{ alertmanager_version }}.tar.gz"
+    dest: "/opt/alertmanager"
+    remote_src: yes           # 원격 서버에서 압축 해제 (로컬 파일이 아님)
+    extra_opts: "--strip-components=1"
+    # 압축 파일 내 최상위 디렉토리(alertmanager-x.x.x.linux-amd64)를 제거하고
+    # 바로 /opt/alertmanager/ 에 풀어냄
+  when: not alertmanager_binary.stat.exists
+
+- name: Alertmanager 바이너리를 시스템 경로로 복사
+  ansible.builtin.copy:
+    src: "/opt/alertmanager/alertmanager"
+    dest: /usr/local/bin/alertmanager
+    remote_src: yes
+    owner: root
+    group: root
+    mode: '0755'
+  when: not alertmanager_binary.stat.exists
+  notify: restart alertmanager
+  # 바이너리가 새로 복사되면 서비스 재시작
+
+# -------------------------------------------------------
+# 4. 설정 파일 배포
+# -------------------------------------------------------
+- name: Alertmanager 설정 파일 배포 (alertmanager.yml)
+  ansible.builtin.template:
+    src: alertmanager.yml.j2
+    dest: "{{ alertmanager_config_dir }}/alertmanager.yml"
+    owner: "{{ alertmanager_user }}"
+    group: "{{ alertmanager_user }}"
+    mode: '0640'             # 소유자만 읽기/쓰기 (Slack Webhook URL 보호)
+  notify: reload alertmanager
+  # 설정 변경 시 재시작 없이 hot-reload 시도 (서비스 중단 최소화)
+  # Alertmanager는 /-/reload 엔드포인트로 설정 재로드 지원
+
+- name: Alertmanager 설정 파일 문법 검사
+  ansible.builtin.command:
+    cmd: /usr/local/bin/amtool check-config {{ alertmanager_config_dir }}/alertmanager.yml
+  register: alertmanager_config_check
+  changed_when: false        # 체크 명령 자체는 변경이 아님
+  failed_when: alertmanager_config_check.rc != 0
+  # 문법 오류가 있으면 배포 중단 (잘못된 설정으로 alertmanager 죽는 것 방지)
+
+# -------------------------------------------------------
+# 5. systemd 서비스 등록
+# -------------------------------------------------------
+- name: Alertmanager systemd 서비스 파일 생성
+  ansible.builtin.template:
+    src: alertmanager.service.j2
+    dest: /etc/systemd/system/alertmanager.service
+    owner: root
+    group: root
+    mode: '0644'
+  notify:
+    - reload systemd daemon
+    - restart alertmanager
+
+- name: Alertmanager 서비스 시작 및 부팅 시 자동 시작 등록
+  ansible.builtin.service:
+    name: alertmanager
+    state: started
+    enabled: yes
+
+# -------------------------------------------------------
+# 6. 방화벽 설정 (Prometheus에서만 접근 허용)
+# -------------------------------------------------------
+- name: Alertmanager 포트 방화벽 허용 (Prometheus 서버에서만)
+  ansible.posix.firewalld:
+    rich_rule: "rule family='ipv4' source address='127.0.0.1' port protocol='tcp' port='{{ alertmanager_port }}' accept"
+    permanent: yes
+    state: enabled
+    immediate: yes
+  # Alertmanager는 외부에 노출할 필요 없음 (Prometheus가 같은 서버에 있으면 localhost)
+  # 외부 접근이 필요하면 VPN 또는 SSH 터널 사용 권장
+
+# -------------------------------------------------------
+# 7. 헬스체크
+# -------------------------------------------------------
+- name: Alertmanager 정상 기동 확인
+  ansible.builtin.uri:
+    url: "http://localhost:{{ alertmanager_port }}/-/healthy"
+    method: GET
+    status_code: 200
+  register: alertmanager_health
+  until: alertmanager_health.status == 200
+  retries: 5
+  delay: 5
+  # 최대 25초(5회 × 5초) 동안 기동 대기

@@ -1,11 +1,17 @@
 ---
-# 모든 서버에 Node Exporter 설치
+# 모든 서버에 Node Exporter 설치 (OS 메트릭 수집)
 - name: Node Exporter 설치
   import_tasks: node_exporter.yml
   tags: [monitoring, node_exporter]
 
-# monitoring 그룹 서버에만 Prometheus 설치
+# monitoring 그룹 서버에만 Prometheus 설치 (중앙 수집)
 - name: Prometheus 설치 (monitoring 서버만)
   import_tasks: prometheus.yml
   when: "'monitoring' in group_names"
   tags: [monitoring, prometheus]
+
+# monitoring 그룹 서버에만 Alertmanager 설치 (알림 발송)
+- name: Alertmanager 설치 (monitoring 서버만)
+  import_tasks: alertmanager.yml
+  when: "'monitoring' in group_names"
+  tags: [monitoring, alertmanager]

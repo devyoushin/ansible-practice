@@ -1,35 +1,221 @@
 # =============================================================
 # common 롤 기본 변수
-# terraform-ec2의 modules/ec2/variables.tf 역할
-# group_vars/all.yml 에서 오버라이드 가능
+# 모든 서버에 공통으로 적용되는 OS 수준 기본 설정
+# 환경별 차이는 inventories/{env}/group_vars/all.yml 에서 오버라이드
 # =============================================================
 
 ---
 # 타임존 기본값
+# Asia/Seoul = KST (UTC+9), 서버 로그 시각이 한국 시간으로 기록됨
 timezone: "Asia/Seoul"
 
-# NTP 서버 기본값
+# NTP 서버 목록
+# 여러 개를 지정하면 chronyd가 자동으로 가장 정확한 서버를 선택
 ntp_servers:
-  - "169.254.169.123"
+  - "169.254.169.123"   # AWS Time Sync Service - EC2 내부 전용, 지연 최소
+  - "time.google.com"   # Google 공개 NTP - AWS 장애 시 백업
 
-# 공통 패키지 기본값
+# 공통 패키지 목록
+# 모든 서버에 기본 설치되는 도구들
 common_packages:
-  - vim
-  - curl
-  - wget
-  - unzip
+  - vim          # 텍스트 편집기 (설정 파일 긴급 수정용)
+  - curl         # HTTP 클라이언트 (헬스체크, API 호출, 파일 다운로드)
+  - wget         # HTTP/FTP 파일 다운로드 도구
+  - unzip        # ZIP 압축 해제
+  - net-tools    # netstat(포트 확인), ifconfig(IP 확인) 등 네트워크 진단 도구
+  - htop         # 실시간 CPU/메모리/프로세스 모니터링 (top의 개선판)
+  - lsof         # 어떤 프로세스가 어떤 파일/소켓을 열고 있는지 확인
+  - strace       # 프로세스의 시스템 콜 추적 - 장애 원인 분석 시 사용
+  - tcpdump      # 네트워크 패킷 캡처 - 통신 문제 분석 시 사용
+  - sysstat      # sar, iostat, mpstat 등 시스템 성능 통계 수집 도구
 
-# sysctl 설정
+# =============================================================
+# sysctl 커널 파라미터 설정
+# 파일: /etc/sysctl.d/90-ansible.conf
+# 적용: sysctl --system (재부팅 없이 즉시 적용)
+#
+# ※ DB 서버 전용 파라미터는 group_vars/dbservers.yml에서 추가 오버라이드
+# =============================================================
 sysctl_settings:
+
+  # -------------------------------------------------------
+  # [네트워크 연결 큐]
+  # 서버로 들어오는 연결이 많을 때 큐를 크게 설정해야
+  # "connection refused" 또는 SYN 패킷 드랍을 방지할 수 있음
+  # -------------------------------------------------------
   - name: "net.core.somaxconn"
     value: "65535"
+    comment: |
+      listen() 소켓의 ESTABLISHED 연결 대기 큐 크기 (기본값: 128)
+      Nginx의 backlog, Java의 acceptCount가 이 값을 초과할 수 없음
+      고트래픽 서버에서 128이면 큐 포화로 신규 연결 거절됨
+
   - name: "net.ipv4.tcp_max_syn_backlog"
     value: "65535"
+    comment: |
+      SYN_RECV 상태(3-way handshake 미완성) 연결 대기 큐 크기 (기본값: 128~512)
+      SYN Flood 공격 대비 + 순간 폭발 트래픽 처리 용도
+      somaxconn과 함께 늘려야 효과 있음
+
+  - name: "net.core.netdev_max_backlog"
+    value: "65535"
+    comment: |
+      NIC 드라이버 → 커널 처리 사이의 패킷 대기 큐 크기 (기본값: 1000)
+      10Gbps 이상 NIC 환경에서 패킷 드랍 방지
+      "ifconfig eth0 | grep 'dropped'" 가 증가하면 올려야 함
+
+  # -------------------------------------------------------
+  # [TIME_WAIT 소켓 최적화]
+  # TCP 연결 종료 후 TIME_WAIT 상태가 기본 60초 지속됨
+  # 짧은 연결이 폭발적으로 많으면 포트/메모리 고갈 발생
+  # "ss -s" 명령으로 TIME_WAIT 수 확인 가능
+  # -------------------------------------------------------
+  - name: "net.ipv4.tcp_fin_timeout"
+    value: "15"
+    comment: |
+      TIME_WAIT 소켓이 소멸하는 시간 (기본값: 60초)
+      웹서버, API 서버처럼 초당 수천 개의 단기 연결을 처리하는 서버에서
+      60초짜리 TIME_WAIT가 쌓이면 포트(ephemeral port) 고갈 발생
+      15초로 단축해 소켓 재사용 속도를 높임
+
+  - name: "net.ipv4.tcp_tw_reuse"
+    value: "1"
+    comment: |
+      TIME_WAIT 상태 소켓을 새 아웃바운드 연결에 재사용 허용 (기본값: 0=비활성)
+      HAProxy → 앱서버, 앱서버 → DB처럼 서버가 클라이언트 역할을 할 때 효과적
+      ※ 클라이언트(아웃바운드) 측에서만 동작, 서버(인바운드)는 효과 없음
+
+  # -------------------------------------------------------
+  # [TCP Keepalive - 죽은 연결 조기 감지]
+  # DB 커넥션 풀, Nginx upstream 유지 연결에서 중요
+  # 방화벽/LB가 유휴 연결을 조용히 끊어버리는 문제 방지
+  # -------------------------------------------------------
+  - name: "net.ipv4.tcp_keepalive_time"
+    value: "300"
+    comment: |
+      마지막 데이터 전송 후 keepalive 탐침(probe)을 시작하는 대기 시간 (기본값: 7200초=2시간)
+      AWS NLB/ALB는 기본 350초 후 유휴 연결을 끊음
+      300초로 설정하면 LB가 끊기 전에 keepalive를 먼저 보내 연결 유지
+
+  - name: "net.ipv4.tcp_keepalive_intvl"
+    value: "30"
+    comment: |
+      keepalive 탐침 재전송 간격 (기본값: 75초)
+      응답이 없으면 30초마다 재시도 (총 대기 = 30초 × tcp_keepalive_probes)
+
+  - name: "net.ipv4.tcp_keepalive_probes"
+    value: "3"
+    comment: |
+      keepalive 탐침 최대 실패 허용 횟수 (기본값: 9회)
+      3번 실패(30초 × 3 = 90초) 후 연결을 강제 종료
+      HikariCP, c3p0 등 DB 커넥션 풀이 죽은 연결을 빠르게 감지하게 해줌
+
+  # -------------------------------------------------------
+  # [로컬 포트 범위]
+  # 서버가 클라이언트로 외부에 연결할 때 사용하는 임시 포트 범위
+  # 범위가 좁으면 "Cannot assign requested address" 에러 발생
+  # -------------------------------------------------------
+  - name: "net.ipv4.ip_local_port_range"
+    value: "10240 65535"
+    comment: |
+      아웃바운드 연결에 사용하는 임시 포트 범위 (기본값: 32768~60999, 약 28000개)
+      10240~65535로 확장하면 약 55000개 사용 가능
+      HAProxy, 앱서버처럼 DB나 외부 API에 대량 연결하는 서버에서 필수
+
+  # -------------------------------------------------------
+  # [TCP 소켓 버퍼 크기]
+  # 버퍼가 크면 한 번에 더 많은 데이터를 전송 가능
+  # 단, 소켓 하나당 메모리를 더 사용하므로 적절히 조정
+  # -------------------------------------------------------
+  - name: "net.ipv4.tcp_rmem"
+    value: "4096 87380 16777216"
+    comment: |
+      TCP 수신 버퍼 크기: 최솟값 4KB / 기본값 ~87KB / 최댓값 16MB
+      대용량 파일 전송, 고속 네트워크(10Gbps)에서 처리량 향상
+      형식: "최솟값 기본값 최댓값" (bytes)
+
+  - name: "net.ipv4.tcp_wmem"
+    value: "4096 65536 16777216"
+    comment: |
+      TCP 송신 버퍼 크기: 최솟값 4KB / 기본값 64KB / 최댓값 16MB
+
+  - name: "net.core.rmem_max"
+    value: "16777216"
+    comment: |
+      SO_RCVBUF 소켓 옵션으로 설정 가능한 최대 수신 버퍼 크기
+      tcp_rmem의 최댓값보다 크거나 같아야 tcp_rmem 최댓값이 실제로 적용됨
+
+  - name: "net.core.wmem_max"
+    value: "16777216"
+    comment: |
+      SO_SNDBUF 소켓 옵션으로 설정 가능한 최대 송신 버퍼 크기
+
+  # -------------------------------------------------------
+  # [파일 디스크립터 제한]
+  # Linux는 소켓, 파일, 파이프 모두를 파일 디스크립터로 관리
+  # 고부하 서버에서 "Too many open files" 에러의 핵심 원인
+  # -------------------------------------------------------
   - name: "fs.file-max"
-    value: "65536"
+    value: "2097152"
+    comment: |
+      시스템 전체 최대 오픈 파일 수 (기본값: ~65536)
+      소켓도 파일로 취급되므로 동시 접속 10만 이상이면 부족
+      ulimit(프로세스별 제한)과 함께 올려야 실제로 적용됨
+
+  # -------------------------------------------------------
+  # [가상 메모리 / Swap 정책]
+  # -------------------------------------------------------
   - name: "vm.swappiness"
     value: "10"
+    comment: |
+      커널이 swap을 사용하려는 공격성 (0~100, 기본값: 60)
+      60 = 메모리가 여유 있어도 swap 사용
+      10 = 메모리가 거의 꽉 찰 때만 swap 사용
+      ※ DB 서버는 group_vars/dbservers.yml에서 1로 오버라이드
+         swap 발생 시 DB 응답 시간이 수백배 느려짐
 
-# ulimit 설정
-ulimit_nofile_soft: 65536
-ulimit_nofile_hard: 65536
+  - name: "vm.dirty_ratio"
+    value: "20"
+    comment: |
+      더티 페이지(디스크에 아직 안 쓴 메모리 데이터)가 전체 RAM의 20%를 넘으면
+      쓰기 중인 프로세스를 강제로 블로킹하고 flush 수행
+      20% 초과 시 I/O가 급증하고 서비스가 잠깐 멈출 수 있음
+
+  - name: "vm.dirty_background_ratio"
+    value: "5"
+    comment: |
+      더티 페이지가 RAM의 5%를 넘으면 백그라운드 pdflush가 조용히 기록 시작
+      프로세스를 블로킹하지 않고 꾸준히 flush해 dirty_ratio 도달을 방지
+
+  # -------------------------------------------------------
+  # [커널 프로세스 제한]
+  # -------------------------------------------------------
+  - name: "kernel.pid_max"
+    value: "65536"
+    comment: |
+      최대 프로세스 ID 수 (기본값: 32768)
+      컨테이너 환경이나 스레드 많은 Java 앱에서 PID 공간 고갈 방지
+      "fork: retry: No child processes" 에러 발생 시 올려야 함
+
+# =============================================================
+# ulimit 설정 (프로세스별 리소스 제한)
+# 파일: /etc/security/limits.d/90-ansible.conf
+#
+# soft = 현재 제한 (프로세스가 ulimit 명령으로 hard까지 올릴 수 있음)
+# hard = 절대 상한선 (root만 변경 가능)
+# =============================================================
+ulimit_nofile_soft: 65536   # 프로세스 하나가 열 수 있는 파일(소켓 포함) 최대 수
+ulimit_nofile_hard: 65536   # 위 값의 상한선
+ulimit_nproc_soft: 65536    # 사용자 하나가 생성할 수 있는 프로세스/스레드 최대 수
+ulimit_nproc_hard: 65536    # 위 값의 상한선
+
+# =============================================================
+# THP (Transparent Huge Pages) 비활성화 여부
+#
+# THP = 리눅스가 4KB 페이지 대신 2MB 대형 페이지를 자동으로 사용하는 기능
+# 일반 계산 작업엔 유리하지만 DB/캐시 계열 소프트웨어에서는 심각한 문제 발생:
+#   - Redis: SAVE/fork 시 지연 급증 ("latency spike")
+#   - MariaDB/MySQL: innodb 성능 저하, 메모리 사용 불안정
+#   - Elasticsearch: GC 지연 증가
+# =============================================================
+disable_thp: true   # true = THP를 disabled, madvise 모드로 전환

@@ -1,67 +1,192 @@
 # =============================================================
-# database role 기본 변수
-# 실제 값은 group_vars/vault.yml 에서 ansible-vault로 관리
+# database role 기본 변수 (MariaDB)
+# 실제 비밀번호는 group_vars/{env}/vault.yml 에서 ansible-vault로 관리
+# 환경별 성능 튜닝은 group_vars/dbservers.yml 에서 오버라이드
 # =============================================================
 
-# ----------------------------
-# MariaDB 설정
-# ----------------------------
-mariadb_version: "10.5"
+---
+# -------------------------------------------------------
+# [MariaDB 기본 설정]
+# -------------------------------------------------------
+mariadb_version: "10.11"
+# MariaDB LTS 버전 기준: 10.5(구형), 10.11(현재 주력 LTS), 11.x(최신)
+# 10.11 = 2028년까지 지원 (production 권장)
+
 mariadb_port: 3306
 mariadb_bind_address: "0.0.0.0"
-mariadb_datadir: "/var/lib/mysql"
-mariadb_log_dir: "/var/log/mariadb"
+# 0.0.0.0: 모든 인터페이스에서 연결 수락 (방화벽으로 접근 제어)
+# 특정 IP만 허용하려면 해당 IP로 변경 (예: 10.0.2.100)
+
+mariadb_datadir: "/var/lib/mysql"         # DB 데이터 파일 저장 위치
+mariadb_log_dir: "/var/log/mariadb"       # 에러 로그, 슬로우 쿼리 로그 위치
 mariadb_pid_file: "/var/run/mariadb/mariadb.pid"
 
-# ----------------------------
-# 성능 튜닝
-# ----------------------------
+# -------------------------------------------------------
+# [연결 설정]
+# -------------------------------------------------------
 mariadb_max_connections: 200
-mariadb_innodb_buffer_pool_size: "512M"   # 보통 전체 RAM의 70~80%
-mariadb_innodb_log_file_size: "128M"
-mariadb_query_cache_size: "64M"
-mariadb_slow_query_log: true
-mariadb_slow_query_log_time: 2            # 2초 이상 쿼리를 slow log에 기록
+# 동시에 열 수 있는 최대 연결 수 (기본값 151)
+# 앱서버 N대 × HikariCP max-pool-size + 운영 접속(DBA, 모니터링) 여유
+# 너무 높으면 메모리 부족 (연결 하나당 약 1MB 메모리 사용)
+# 계산법: 각 연결 메모리 = sort_buffer_size + join_buffer_size + ... ≈ 수 MB
+
 mariadb_max_allowed_packet: "64M"
+# 클라이언트와 서버 사이에 주고받을 수 있는 최대 패킷 크기
+# BLOB, TEXT 컬럼에 큰 데이터 저장 시 "Packet too large" 에러 방지
+# 기본값 16MB → 64MB로 확장
 
-# ----------------------------
-# 문자셋 / 콜레이션
-# ----------------------------
+mariadb_wait_timeout: 28800
+# 유휴 연결이 자동으로 끊기는 시간 (초, 기본 8시간)
+# HikariCP의 max-lifetime(30분) 보다 크게 설정 (풀이 먼저 교체하도록)
+# 너무 길면 좀비 연결이 max_connections 자리를 차지
+
+mariadb_interactive_timeout: 28800
+# 대화형(mysql 클라이언트, 쿼리 직접 실행) 연결의 유휴 타임아웃
+
+# -------------------------------------------------------
+# [문자셋 / 콜레이션]
+# -------------------------------------------------------
 mariadb_character_set: "utf8mb4"
-mariadb_collation: "utf8mb4_unicode_ci"
+# utf8mb4: 이모지, 특수문자 포함 완전한 유니코드 지원
+# 주의: 구형 utf8(MySQL/MariaDB 내부용)은 3바이트라 이모지 저장 불가
 
-# ----------------------------
-# 계정 (실제 비밀번호는 vault.yml에서 주입)
-# ----------------------------
+mariadb_collation: "utf8mb4_unicode_ci"
+# unicode_ci: 언어별 정렬 규칙 적용 (대소문자 구분 안 함)
+# general_ci보다 느리지만 다국어 처리 정확
+
+# -------------------------------------------------------
+# [InnoDB 성능 튜닝]
+# InnoDB: MariaDB/MySQL의 기본 스토리지 엔진
+# 트랜잭션, 외래키, MVCC(다중버전동시성제어) 지원
+# -------------------------------------------------------
+mariadb_innodb_buffer_pool_size: "512M"
+# InnoDB의 가장 중요한 설정 - 데이터와 인덱스를 메모리에 캐시
+# 서버 총 RAM의 50~70% 설정 권장
+# 값이 클수록 디스크 I/O 감소 → 쿼리 속도 향상
+# 예: RAM 8GB 서버 → innodb_buffer_pool_size = 5G~6G
+# 확인: SHOW ENGINE INNODB STATUS\G → Buffer pool hit rate가 99%+ 이면 적절
+
+mariadb_innodb_buffer_pool_instances: 1
+# buffer_pool_size가 1GB 이상이면 2 이상으로 설정 권장
+# 인스턴스당 크기 = innodb_buffer_pool_size / instances
+# 여러 쓰레드가 동시에 버퍼풀에 접근할 때 잠금 경합 감소
+
+mariadb_innodb_log_file_size: "256M"
+# InnoDB 리두 로그(redo log) 파일 하나의 크기
+# 크게 설정할수록: 쓰기 성능 향상, 충돌 복구 시간 증가
+# 8GB 이하 buffer_pool이면 256M, 그 이상이면 512M~1G 권장
+# 변경 후 기존 ib_logfile0, ib_logfile1 삭제 후 재시작 필요
+
+mariadb_innodb_log_buffer_size: "64M"
+# 디스크에 flush하기 전 리두 로그를 담아두는 메모리 버퍼
+# 대용량 트랜잭션이 많으면 128M로 늘려 flush 빈도 감소
+
+mariadb_innodb_flush_log_at_trx_commit: 1
+# 트랜잭션 커밋 시 리두 로그를 디스크에 쓰는 방식
+# 1 (기본): COMMIT 마다 디스크 flush → 데이터 안전, 성능 낮음 (ACID 완전 보장)
+# 2 : OS 버퍼에만 기록, 1초마다 flush → OS 크래시 시 최대 1초 유실
+# 0 : 1초마다 기록+flush → MySQL 크래시 시 최대 1초 유실 (가장 빠름)
+# prod은 반드시 1 사용 (금융, 주문 등 데이터 유실 불허 서비스)
+
+mariadb_innodb_file_per_table: "ON"
+# ON: 테이블마다 별도 .ibd 파일 생성
+# OFF: 모든 테이블이 ibdata1 하나에 저장 (ibdata1이 계속 커져서 반환 불가)
+# ON 설정 시 DROP TABLE 하면 파일이 삭제되어 디스크 공간 반환됨
+
+mariadb_innodb_flush_method: "O_DIRECT"
+# O_DIRECT: OS 페이지 캐시를 건너뛰고 직접 쓰기
+# InnoDB buffer pool이 이미 캐시 역할을 하므로 OS 캐시와 중복 방지
+# 메모리 효율 향상 (같은 데이터를 두 번 캐시하지 않음)
+
+mariadb_innodb_read_io_threads: 4
+mariadb_innodb_write_io_threads: 4
+# I/O 처리 전용 스레드 수
+# SSD: 4~8, 일반 HDD: 2~4, NVMe: 8~16
+
+# -------------------------------------------------------
+# [쿼리 캐시]
+# MariaDB 10.1.7까지 유효, 10.2+ 에서는 사용 주의
+# 같은 SELECT 쿼리를 캐시해 재사용 (쓰기가 많으면 성능 저하)
+# -------------------------------------------------------
+mariadb_query_cache_type: 0
+# 0: 비활성 (쓰기 빈번한 OLTP 환경 권장 - 쓰기 시 캐시 무효화 비용)
+# 1: 활성 (읽기 중심의 정적 데이터)
+# 2: 명시적 SQL_CACHE 힌트가 있는 쿼리만 캐시
+
+mariadb_query_cache_size: "0"
+# type=0이면 0으로 설정 (메모리 낭비 방지)
+
+# -------------------------------------------------------
+# [슬로우 쿼리 로그]
+# 실행 시간이 긴 쿼리를 기록해 인덱스 누락, N+1 문제 등 진단
+# -------------------------------------------------------
+mariadb_slow_query_log: true
+mariadb_slow_query_log_time: 1
+# 1초 이상 걸리는 쿼리를 slow query log에 기록
+# 개발 환경에서는 0.1로 설정해 더 세밀하게 추적 가능
+
+mariadb_log_queries_not_using_indexes: "ON"
+# 인덱스를 사용하지 않는 쿼리도 기록 (풀 스캔 탐지)
+# slow_query_log가 true일 때만 동작
+
+# -------------------------------------------------------
+# [바이너리 로그 (binlog)]
+# 복제(Replication)와 Point-in-Time Recovery에 필수
+# -------------------------------------------------------
+mariadb_binlog_enabled: "{{ mariadb_replication_enabled }}"
+# 복제 사용 시 자동 활성화, 단독 DB도 PITR 원하면 true
+
+mariadb_binlog_format: "ROW"
+# STATEMENT: SQL문 자체를 기록 (비결정적 함수 NOW(), UUID() 등에서 복제 불일치)
+# ROW: 실제로 변경된 행을 기록 (안전하지만 로그 용량 더 큼)
+# MIXED: 기본은 STATEMENT, 비결정적 함수는 ROW (절충안)
+# 5.7/10.x 이후 기본값이 ROW로 변경됨
+
+mariadb_binlog_expire_logs_days: 7
+# 7일 지난 binlog 파일 자동 삭제
+# PITR이 필요한 기간만큼 유지 (디스크 공간과 균형)
+
+mariadb_max_binlog_size: "100M"
+# binlog 파일 하나의 최대 크기 (초과 시 새 파일 생성)
+
+# -------------------------------------------------------
+# [계정 설정 (실제 비밀번호는 vault.yml에서 주입)]
+# -------------------------------------------------------
 mariadb_root_password: "{{ vault_db_root_password }}"
 
-# 생성할 데이터베이스 목록
 mariadb_databases:
   - name: "appdb"
     encoding: "utf8mb4"
     collation: "utf8mb4_unicode_ci"
 
-# 생성할 사용자 목록
 mariadb_users:
   - name: "appuser"
     password: "{{ vault_db_app_password }}"
     priv: "appdb.*:ALL"
-    host: "10.20.2.%"   # appserver 서브넷만 허용
+    host: "10.20.2.%"
+    # 특정 서브넷(앱서버 대역)에서만 접속 허용
+    # 10.20.2.% = 10.20.2.0/24 대역의 모든 IP
 
-# ----------------------------
-# 복제(Replication) 설정
-# prod 환경에서만 true로 설정
-# ----------------------------
+# -------------------------------------------------------
+# [복제(Replication) 설정]
+# Master-Slave 구조: Master에서 쓰기, Slave에서 읽기 부하 분산
+# prod 환경 group_vars/dbservers.yml 에서 true로 오버라이드
+# -------------------------------------------------------
 mariadb_replication_enabled: false
 mariadb_replication_role: "master"        # master | slave
 mariadb_replication_user: "replicator"
 mariadb_replication_password: "{{ vault_db_replication_password | default('changeme') }}"
-mariadb_server_id: 1                      # 마스터=1, 슬레이브=2,3...
+mariadb_server_id: 1
+# 복제 구성에서 각 서버를 구분하는 고유 번호
+# Master: 1, Slave1: 2, Slave2: 3 (겹치면 복제 중단)
 
-# ----------------------------
-# 백업 설정
-# ----------------------------
+# -------------------------------------------------------
+# [백업 설정]
+# mysqldump 기반 논리적 백업
+# 대용량(수백GB+) 이면 Percona XtraBackup (물리적 백업) 권장
+# -------------------------------------------------------
 mariadb_backup_enabled: true
 mariadb_backup_dir: "/backup/mariadb"
-mariadb_backup_retention_days: 7
-mariadb_backup_schedule: "0 2 * * *"     # 매일 새벽 2시
+mariadb_backup_retention_days: 7         # 7일 이상 된 백업 자동 삭제
+mariadb_backup_schedule: "0 2 * * *"     # 매일 새벽 2시 실행 (트래픽 적은 시간)
+mariadb_backup_compress: true            # gzip으로 압축 (디스크 70~80% 절약)

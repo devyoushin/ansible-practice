@@ -1,46 +1,54 @@
 # =============================================================
 # common 롤 - 공통 서버 초기 설정
-# terraform-ec2의 modules/ec2/main.tf 역할과 유사
-# 모든 서버에 적용되는 기본 구성 관리
+# 모든 서버(웹서버, 앱서버, DB서버 등)에 적용되는 기반 구성
+# 실행 순서: 패키지 → 시간 → 호스트명 → ulimit → sysctl → THP비활성 → 디렉토리
 # =============================================================
 
 ---
-# ----------------------------
+# -------------------------------------------------------
 # 1. 패키지 업데이트 및 공통 패키지 설치
-# ----------------------------
-- name: 패키지 캐시 업데이트 (yum)
+# -------------------------------------------------------
+- name: 패키지 캐시 업데이트 (RHEL/CentOS/Rocky)
   ansible.builtin.yum:
     update_cache: yes
   when: ansible_os_family == "RedHat"
+  # yum 메타데이터를 최신화해야 최신 패키지 버전 설치 가능
 
-- name: 패키지 캐시 업데이트 (apt)
+- name: 패키지 캐시 업데이트 (Ubuntu/Debian)
   ansible.builtin.apt:
     update_cache: yes
-    cache_valid_time: 3600
+    cache_valid_time: 3600   # 1시간 이내에 이미 업데이트했으면 스킵 (멱등성)
   when: ansible_os_family == "Debian"
 
-- name: 공통 패키지 설치
+- name: 공통 패키지 설치 ({{ common_packages | join(', ') }})
   ansible.builtin.package:
     name: "{{ common_packages }}"
     state: present
+  # ansible.builtin.package는 OS별 패키지 매니저를 자동 선택 (yum/apt)
 
-# ----------------------------
+# -------------------------------------------------------
 # 2. 타임존 설정
-# ----------------------------
+# 서버 로그 시각이 한국 시간으로 기록되도록 설정
+# -------------------------------------------------------
 - name: 타임존 설정 ({{ timezone }})
   community.general.timezone:
     name: "{{ timezone }}"
   notify: timedatectl 상태 확인
+  # 핸들러가 timedatectl status를 출력해 실제 적용 여부 확인 가능
 
-# ----------------------------
+# -------------------------------------------------------
 # 3. NTP 설정 (chrony)
-# ----------------------------
+# 서버 시간 동기화 - 로그 분석, 인증서 유효성, DB 복제에 필수
+# systemd-timesyncd 대신 chrony를 사용하는 이유:
+#   - 네트워크 단절 후 빠른 재동기화
+#   - NTP 서버 여러 개 중 가장 정확한 것 자동 선택
+# -------------------------------------------------------
 - name: chrony 패키지 설치
   ansible.builtin.package:
     name: chrony
     state: present
 
-- name: chrony 설정 파일 배포
+- name: chrony 설정 파일 배포 (/etc/chrony.conf)
   ansible.builtin.template:
     src: chrony.conf.j2
     dest: /etc/chrony.conf
@@ -48,21 +56,25 @@
     group: root
     mode: '0644'
   notify: chrony 재시작
+  # 설정이 바뀌면 핸들러가 chronyd를 재시작해 새 NTP 서버에 동기화
 
-- name: chrony 서비스 활성화 및 시작
+- name: chrony 서비스 부팅 시 자동 시작 + 현재 시작
   ansible.builtin.service:
     name: chronyd
     state: started
     enabled: yes
 
-# ----------------------------
+# -------------------------------------------------------
 # 4. 호스트명 설정
-# ----------------------------
-- name: 호스트명 설정
+# Ansible 인벤토리의 호스트명을 실제 서버 hostname으로 설정
+# 로그, 알림, 모니터링에서 서버를 식별하는 기준이 됨
+# -------------------------------------------------------
+- name: 호스트명 설정 ({{ inventory_hostname }})
   ansible.builtin.hostname:
     name: "{{ inventory_hostname }}"
+  # 재부팅 없이 즉시 적용 (hostnamectl set-hostname 과 동일)
 
-- name: /etc/hosts에 호스트명 등록
+- name: /etc/hosts 에 자기 자신(loopback) 호스트명 등록
   ansible.builtin.lineinfile:
     path: /etc/hosts
     regexp: '^127\.0\.0\.1'
@@ -70,22 +82,14 @@
     owner: root
     group: root
     mode: '0644'
+  # Java 앱이 InetAddress.getLocalHost()를 호출할 때 호스트명 해석 실패 방지
 
-# ----------------------------
-# 5. 공통 디렉토리 생성
-# ----------------------------
-- name: 로그 디렉토리 생성
-  ansible.builtin.file:
-    path: /var/log/app
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
-
-# ----------------------------
-# 6. 시스템 limits 설정 (ulimit)
-# ----------------------------
-- name: 파일 디스크립터 limits 설정
+# -------------------------------------------------------
+# 5. 시스템 ulimit 설정 (파일 디스크립터, 프로세스 수 제한)
+# /etc/security/limits.d/ 에 파일을 놓으면 /etc/security/limits.conf보다 우선 적용
+# 재부팅 또는 새 세션 시작 시 적용됨 (현재 실행 중인 프로세스는 해당 없음)
+# -------------------------------------------------------
+- name: ulimit 설정 파일 배포 (/etc/security/limits.d/90-ansible.conf)
   ansible.builtin.template:
     src: limits.conf.j2
     dest: /etc/security/limits.d/90-ansible.conf
@@ -93,13 +97,83 @@
     group: root
     mode: '0644'
 
-# ----------------------------
-# 7. sysctl 커널 파라미터 설정
-# ----------------------------
-- name: sysctl 파라미터 설정
+# -------------------------------------------------------
+# 6. sysctl 커널 파라미터 설정
+# /etc/sysctl.d/90-ansible.conf 에 저장하고 즉시 적용
+# 재부팅해도 유지됨 (sysctl.d 디렉토리는 부팅 시 자동 로드)
+# -------------------------------------------------------
+- name: sysctl 설정 파일 생성 (/etc/sysctl.d/90-ansible.conf)
+  ansible.builtin.template:
+    src: sysctl.conf.j2
+    dest: /etc/sysctl.d/90-ansible.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: sysctl 적용
+  # 파일을 먼저 만들고 핸들러가 "sysctl --system"으로 일괄 적용
+
+- name: sysctl 파라미터 즉시 적용
   ansible.posix.sysctl:
     name: "{{ item.name }}"
     value: "{{ item.value }}"
     state: present
-    reload: yes
+    reload: yes    # 설정 후 즉시 /proc/sys/... 에 반영
+    sysctl_file: /etc/sysctl.d/90-ansible.conf
   loop: "{{ sysctl_settings }}"
+  # loop로 defaults/main.yml의 sysctl_settings 목록을 순서대로 적용
+
+# -------------------------------------------------------
+# 7. THP (Transparent Huge Pages) 비활성화
+# Redis, MariaDB, Elasticsearch 등 DB/캐시 계열에서 필수
+#
+# THP란? 리눅스가 메모리 성능을 위해 4KB 페이지 대신
+#         2MB 대형 페이지를 자동으로 사용하는 기능
+# 문제점: DB는 메모리를 세밀하게 제어해야 하는데 THP가 간섭해
+#         예측 불가한 latency spike(응답 지연 폭발) 발생
+# -------------------------------------------------------
+- name: THP 비활성화 여부 확인 (설정값)
+  when: disable_thp | bool
+  block:
+    - name: THP 현재 세션 즉시 비활성화 (always 모드 → never)
+      ansible.builtin.shell: |
+        echo never > /sys/kernel/mm/transparent_hugepage/enabled
+        echo never > /sys/kernel/mm/transparent_hugepage/defrag
+      changed_when: false
+      # shell 모듈 사용 이유: /sys/kernel/mm 은 sysctl로 제어 불가한 커널 인터페이스
+
+    - name: THP 비활성화 재부팅 후에도 유지 (rc.local 등록)
+      ansible.builtin.lineinfile:
+        path: /etc/rc.local
+        line: "{{ item }}"
+        create: yes
+        mode: '0755'
+      loop:
+        - "echo never > /sys/kernel/mm/transparent_hugepage/enabled"
+        - "echo never > /sys/kernel/mm/transparent_hugepage/defrag"
+      # rc.local은 부팅 완료 후 실행되므로 영구 적용 가능
+
+    - name: rc-local 서비스 활성화 (재부팅 시 rc.local 실행)
+      ansible.builtin.service:
+        name: rc-local
+        enabled: yes
+      ignore_errors: yes   # 일부 OS에서 rc-local 서비스 없어도 rc.local은 실행됨
+
+# -------------------------------------------------------
+# 8. 공통 디렉토리 생성
+# 각 롤이 로그/데이터를 저장하기 전에 디렉토리가 있어야 함
+# -------------------------------------------------------
+- name: Ansible 관리 로그 디렉토리 생성 (/var/log/ansible)
+  ansible.builtin.file:
+    path: /var/log/ansible
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: 앱 공통 로그 디렉토리 생성 (/var/log/app)
+  ansible.builtin.file:
+    path: /var/log/app
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'

@@ -1,0 +1,167 @@
+# =============================================================
+# Alertmanager 설정 (Ansible 관리 - 직접 수정 금지)
+# 환경: {{ environment }} | 호스트: {{ inventory_hostname }}
+#
+# 동작 흐름:
+# Prometheus → (alert 발화) → Alertmanager → (라우팅 규칙 적용) → Slack/Email
+#
+# 설정 재로드 (서비스 재시작 없이):
+#   curl -X POST http://localhost:9093/-/reload
+# 현재 알림 상태 확인:
+#   curl http://localhost:9093/api/v2/alerts
+# =============================================================
+
+# -------------------------------------------------------
+# [전역 설정]
+# 개별 receiver에서 재정의하지 않으면 이 값이 적용됨
+# -------------------------------------------------------
+global:
+  resolve_timeout: 5m
+  # alert 조건이 해소된 후 5분이 지나도 재발화 없으면 "resolved" 알림 발송
+  # 너무 짧으면 일시적 복구/재발화에 resolved가 spam처럼 발송됨
+
+  # Slack 전역 설정 (모든 Slack receiver에서 재정의 가능)
+  slack_api_url: "{{ alertmanager_slack_webhook_url }}"
+  # Incoming Webhook URL (Slack 앱 설정에서 발급)
+  # vault_slack_webhook_url 변수로 vault.yml에서 암호화 관리
+
+# -------------------------------------------------------
+# [알림 템플릿]
+# 알림 메시지 형식을 Jinja2(Go template) 형식으로 커스텀
+# -------------------------------------------------------
+templates:
+  - "{{ alertmanager_config_dir }}/templates/*.tmpl"
+  # 추가 템플릿 파일 경로 (필요 시 custom 알림 형식 정의)
+
+# -------------------------------------------------------
+# [라우팅 규칙]
+# alert가 들어오면 라우팅 트리를 따라 어떤 receiver로 보낼지 결정
+# -------------------------------------------------------
+route:
+  # 기본 receiver (어떤 규칙에도 해당 안 되면 여기로)
+  receiver: "slack-warning"
+
+  group_by:
+    - alertname      # 같은 이름의 alert를 묶음
+    - env            # 환경(prod/dev)별로 묶음
+    - instance       # 같은 서버의 alert를 묶음
+
+  group_wait: {{ alertmanager_group_wait }}
+  # 같은 그룹의 첫 알림을 보내기 전 대기 시간
+  # 여러 서버가 동시에 다운될 때 각각 알림 대신 하나로 묶어서 발송
+
+  group_interval: {{ alertmanager_group_interval }}
+  # 같은 그룹에 새 alert가 추가될 때 알림 재발송 간격
+
+  repeat_interval: {{ alertmanager_repeat_interval }}
+  # 해결 안 된 alert를 몇 시간마다 반복 알림할지
+  # 4시간 = 당직자가 놓쳤을 때 다시 알림
+
+  # -------------------------------------------------------
+  # [하위 라우팅 규칙]
+  # 조건에 맞는 alert를 특정 receiver로 우선 전달
+  # 위에서부터 순서대로 매칭, 첫 번째 매칭에서 멈춤
+  # -------------------------------------------------------
+  routes:
+    # 긴급(critical) 알림 → critical 전용 채널
+    - match:
+        severity: critical
+      receiver: "slack-critical"
+      repeat_interval: 1h    # critical은 1시간마다 반복 (더 자주)
+      continue: false         # 매칭 후 다음 규칙은 확인 안 함
+
+    # DB 관련 알림 → DB 담당 채널 (있으면)
+    - match:
+        job: "mariadb"
+      receiver: "slack-critical"
+      repeat_interval: 30m   # DB 이슈는 30분마다 반복
+
+    # 앱 다운 알림 → critical 채널
+    - match:
+        alertname: "AppDown"
+      receiver: "slack-critical"
+
+    # 경고(warning) - 기본 채널 (route 최상위 receiver 사용)
+
+# -------------------------------------------------------
+# [Receiver (알림 발송 대상) 설정]
+# -------------------------------------------------------
+receivers:
+  # -------------------------------------------------------
+  # Critical 긴급 알림 채널
+  # -------------------------------------------------------
+  - name: "slack-critical"
+    slack_configs:
+      - channel: "{{ alertmanager_slack_channel_critical }}"
+        # 긴급 알림 전용 Slack 채널 (#alerts-critical)
+
+        send_resolved: true
+        # true = 알림이 해소되면 "RESOLVED" 메시지도 발송 (복구 확인 가능)
+
+        title: |
+          {{ '{{' }} if eq .Status "firing" {{ '}}' }}🔴 [긴급] {{ environment | upper }} 장애 발생{{ '{{' }} else {{ '}}' }}✅ [해결] {{ environment | upper }} 복구 완료{{ '{{' }} end {{ '}}' }}
+        # 발화 시: 🔴 [긴급] PROD 장애 발생
+        # 해소 시: ✅ [해결] PROD 복구 완료
+
+        text: |
+          {{ '{{' }} range .Alerts {{ '}}' }}
+          *알림명:* {{ '{{' }} .Labels.alertname {{ '}}' }}
+          *환경:* {{ environment }}
+          *서버:* {{ '{{' }} .Labels.instance {{ '}}' }}
+          *심각도:* {{ '{{' }} .Labels.severity {{ '}}' }}
+          *발생 시각:* {{ '{{' }} .StartsAt.Format "2006-01-02 15:04:05" {{ '}}' }}
+          *내용:* {{ '{{' }} .Annotations.description {{ '}}' }}
+          *요약:* {{ '{{' }} .Annotations.summary {{ '}}' }}
+          {{ '{{' }} if .Labels.runbook_url {{ '}}' }}*대응 가이드:* {{ '{{' }} .Labels.runbook_url {{ '}}' }}{{ '{{' }} end {{ '}}' }}
+          ---
+          {{ '{{' }} end {{ '}}' }}
+        # range .Alerts: 묶인 알림들을 순서대로 출력
+        # .Labels: alert 레이블 (alertname, instance, severity 등)
+        # .Annotations: alert 주석 (summary, description, runbook_url)
+
+        color: |
+          {{ '{{' }} if eq .Status "firing" {{ '}}' }}danger{{ '{{' }} else {{ '}}' }}good{{ '{{' }} end {{ '}}' }}
+        # Slack 메시지 좌측 바 색상: 발화=빨강(danger), 해소=초록(good)
+
+        icon_emoji: ":rotating_light:"    # 경광등 이모지
+        username: "Prometheus Alertmanager ({{ environment }})"
+
+  # -------------------------------------------------------
+  # Warning 경고 알림 채널
+  # -------------------------------------------------------
+  - name: "slack-warning"
+    slack_configs:
+      - channel: "{{ alertmanager_slack_channel_warning }}"
+        send_resolved: true
+        title: |
+          {{ '{{' }} if eq .Status "firing" {{ '}}' }}⚠️ [경고] {{ environment | upper }} 주의 필요{{ '{{' }} else {{ '}}' }}✅ [해결] {{ environment | upper }} 정상 복구{{ '{{' }} end {{ '}}' }}
+        text: |
+          {{ '{{' }} range .Alerts {{ '}}' }}
+          *알림명:* {{ '{{' }} .Labels.alertname {{ '}}' }}
+          *서버:* {{ '{{' }} .Labels.instance {{ '}}' }}
+          *내용:* {{ '{{' }} .Annotations.description {{ '}}' }}
+          *발생 시각:* {{ '{{' }} .StartsAt.Format "2006-01-02 15:04:05" {{ '}}' }}
+          {{ '{{' }} end {{ '}}' }}
+        color: |
+          {{ '{{' }} if eq .Status "firing" {{ '}}' }}warning{{ '{{' }} else {{ '}}' }}good{{ '{{' }} end {{ '}}' }}
+        icon_emoji: ":warning:"
+        username: "Prometheus Alertmanager ({{ environment }})"
+
+  # -------------------------------------------------------
+  # 알림 무음 처리용 (아무것도 안 하는 receiver)
+  # 특정 alert를 일시적으로 무시하고 싶을 때 사용
+  # -------------------------------------------------------
+  - name: "null"
+
+# -------------------------------------------------------
+# [침묵(Silence) 관리]
+# 점검 시간, 배포 시간에는 특정 알림을 무음 처리
+# 방법 1: Alertmanager UI (http://localhost:9093) 에서 직접 설정
+# 방법 2: amtool silence add 명령어 사용
+#
+# 예시: 오전 2시 배포 시간에 AppDown 알림 1시간 무음
+# amtool --alertmanager.url=http://localhost:9093 silence add \
+#   alertname=AppDown \
+#   --duration=1h \
+#   --comment="scheduled deployment"
+# -------------------------------------------------------

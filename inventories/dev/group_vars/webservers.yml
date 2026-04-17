@@ -1,0 +1,12 @@
+# =============================================================
+# dev 환경 - 웹서버(Nginx) 전용 변수
+# =============================================================
+
+---
+nginx_worker_connections: 512      # dev는 트래픽 적으므로 낮게 설정
+nginx_rate_limit_enabled: false    # dev에서는 Rate Limiting 비활성 (테스트 편의)
+nginx_upstream_enabled: false
+nginx_static_cache_days: 1         # dev에서는 캐시 1일만 (자주 변경되는 정적 파일)
+nginx_access_log_format: "main"    # dev에서는 텍스트 형식 (사람이 읽기 쉬움)
+nginx_server_name: "_"             # dev는 모든 Host 헤더 수락
+nginx_real_ip_enabled: false       # dev는 LB 없음 (직접 연결)

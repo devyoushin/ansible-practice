@@ -1,0 +1,21 @@
+# =============================================================
+# Tomcat 핸들러
+# =============================================================
+
+---
+- name: reload systemd daemon
+  ansible.builtin.systemd:
+    daemon_reload: yes
+  # systemd 서비스 파일이 변경되면 daemon-reload 필요
+
+- name: restart tomcat
+  ansible.builtin.service:
+    name: tomcat
+    state: restarted
+  # WAR 배포, server.xml, setenv.sh 변경 시 재시작
+
+- name: reload tomcat
+  ansible.builtin.service:
+    name: tomcat
+    state: restarted
+  # Tomcat은 reload가 없으므로 재시작으로 처리
