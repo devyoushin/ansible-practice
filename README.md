@@ -27,13 +27,17 @@ ansible-practice/
 │   ├── site.yml                   # 전체 오케스트레이션 (메인)
 │   ├── rolling_update.yml         # 무중단 롤링 업데이트 (25% serial)
 │   ├── blue_green_deploy.yml      # Blue-Green 배포 (즉시 롤백 가능)
+│   ├── os_upgrade.yml             # RHEL/Rocky OS 버전 업그레이드 (serial: 1)
 │   ├── maintenance.yml            # 운영 유지보수 (디스크/로그/패키지)
 │   ├── incident_response.yml      # 장애 자동 대응 (디스크/서비스/메모리)
 │   ├── data_migration.yml         # 대용량 데이터 마이그레이션
+│   ├── data_migration_examples.yml # 마이그레이션 시나리오 예제
+│   ├── data_migration_verify.yml  # 마이그레이션 결과 검증
 │   ├── database.yml               # DB 단독 배포
 │   ├── app.yml                    # 앱 단독 배포
 │   ├── monitoring.yml             # 모니터링 배포
-│   └── webserver.yml              # 웹서버 단독 배포
+│   ├── webserver.yml              # 웹서버 단독 배포
+│   └── common.yml                 # 공통 초기화 단독 실행
 │
 ├── roles/
 │   ├── common/                    # 공통 초기화 (패키지, NTP, sysctl)
@@ -43,8 +47,10 @@ ansible-practice/
 │   ├── database/                  # MariaDB (replication, backup)
 │   ├── app/                       # Spring Boot 앱 (systemd, health check)
 │   ├── haproxy/                   # 로드밸런서
-│   ├── monitoring/                # Node Exporter + Prometheus
+│   ├── monitoring/                # Node Exporter + Prometheus + Alertmanager
 │   ├── redis/                     # Redis 7 + Sentinel (HA)
+│   ├── tomcat/                    # WAR 배포용 독립 Tomcat (레거시/멀티앱)
+│   ├── os_upgrade/                # RHEL/Rocky OS 버전 업그레이드 (leapp/dnf)
 │   └── data_migration/            # 대용량 데이터 이전
 │
 ├── molecule/

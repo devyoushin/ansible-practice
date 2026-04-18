@@ -42,8 +42,9 @@ ansible-practice/
 │   ├── database/                  # MariaDB (replication, backup, 성능 튜닝)
 │   ├── app/                       # Spring Boot (systemd, health check, JVM 옵션)
 │   ├── haproxy/                   # HAProxy 로드밸런서 (stats, health check)
-│   ├── monitoring/                # Node Exporter + Prometheus (alert rules)
+│   ├── monitoring/                # Node Exporter + Prometheus + Alertmanager
 │   ├── redis/                     # Redis 7 + Sentinel (HA, maxmemory, 보안)
+│   ├── tomcat/                    # WAR 배포용 독립 Tomcat (레거시/멀티앱)
 │   ├── os_upgrade/                # RHEL/Rocky OS 버전 업그레이드 (leapp/dnf)
 │   └── data_migration/            # 대용량 데이터 이전 (rsync/tar/parallel/db_dump)
 │
@@ -79,6 +80,7 @@ ansible-practice/
 | `haproxy` | 로드밸런싱, stats, drain/enable 소켓 제어 |
 | `monitoring` | Node Exporter, Prometheus, Alert Rules |
 | `redis` | Redis 7, maxmemory-policy, Sentinel (HA), 보안 강화 |
+| `tomcat` | WAR 배포용 독립 Tomcat, systemd, 버전 심볼릭링크 관리 |
 | `os_upgrade` | RHEL leapp / Rocky dnf system-upgrade, 사전점검, 백업, 사후검증 |
 | `data_migration` | rsync/tar_stream/parallel/db_dump, 체크섬 검증 |
 
