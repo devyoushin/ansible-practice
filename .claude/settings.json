@@ -1,0 +1,39 @@
+{
+  "model": "claude-sonnet-4-6",
+  "permissions": {
+    "allow": [
+      "Bash(git status)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git branch*)",
+      "Bash(ansible --version)",
+      "Bash(ansible-lint*)",
+      "Bash(yamllint*)",
+      "Bash(ansible-playbook --syntax-check*)",
+      "Bash(ansible-playbook --check*)",
+      "Bash(molecule test*)",
+      "Bash(molecule lint*)",
+      "Bash(pre-commit run*)"
+    ],
+    "deny": [
+      "Bash(ansible-playbook -i inventories/prod*)",
+      "Bash(rm -rf*)",
+      "Bash(git push --force*)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=$(echo $CLAUDE_TOOL_INPUT | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d.get('file_path',''))\" 2>/dev/null); [ -n \"$file\" ] && echo \"[ansible-practice] 저장: $(basename $file)\""
+          }
+        ]
+      }
+    ]
+  }
+}
