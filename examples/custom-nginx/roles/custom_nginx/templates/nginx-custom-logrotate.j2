@@ -1,0 +1,15 @@
+{{ nginx_custom_prefix }}/logs/*.log {
+    daily
+    rotate 14
+    missingok
+    notifempty
+    compress
+    delaycompress
+    create 0640 {{ nginx_custom_user }} {{ nginx_custom_group }}
+    sharedscripts
+    postrotate
+        if systemctl is-active --quiet {{ nginx_custom_service_name }}; then
+            systemctl reload {{ nginx_custom_service_name }} >/dev/null 2>&1 || true
+        fi
+    endscript
+}

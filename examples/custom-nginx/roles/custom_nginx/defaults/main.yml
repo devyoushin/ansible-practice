@@ -1,0 +1,66 @@
+---
+# 설치할 nginx 버전입니다. 필요하면 inventory나 playbook에서 오버라이드하세요.
+nginx_custom_version: "1.26.2"
+nginx_custom_download_url: "https://nginx.org/download/nginx-{{ nginx_custom_version }}.tar.gz"
+# 폐쇄망에서는 컨트롤 노드에 미리 받아둔 nginx 소스 tarball 경로를 지정하세요.
+# 예: nginx_custom_source_archive: files/nginx-1.26.2.tar.gz
+nginx_custom_source_archive: ""
+
+# nginx 전체를 둘 최상위 경로입니다.
+nginx_custom_prefix: /nginx
+
+nginx_custom_user: nginx
+nginx_custom_group: nginx
+nginx_custom_user_shell: /sbin/nologin
+nginx_custom_service_name: nginx-custom
+
+nginx_custom_port: 80
+nginx_custom_server_name: "_"
+nginx_custom_worker_processes: auto
+nginx_custom_worker_connections: 1024
+nginx_custom_keepalive_timeout: 65
+nginx_custom_client_max_body_size: 10m
+
+nginx_custom_build_root: /usr/local/src
+nginx_custom_force_rebuild: false
+
+# 빌드 의존성 설치 방식입니다.
+# repo: OS 패키지 저장소를 사용합니다.
+# local_files: 컨트롤 노드에 있는 rpm/deb 파일을 대상 서버로 복사해서 설치합니다.
+# skip: 의존성이 이미 설치되어 있다고 보고 건너뜁니다.
+nginx_custom_dependency_install_mode: repo
+nginx_custom_dependency_package_files: []
+nginx_custom_dependency_package_remote_dir: "{{ nginx_custom_build_root }}/nginx-offline-packages"
+
+nginx_custom_build_packages:
+  Debian:
+    - build-essential
+    - libpcre3-dev
+    - zlib1g-dev
+    - libssl-dev
+    - ca-certificates
+  RedHat:
+    - gcc
+    - make
+    - pcre-devel
+    - zlib-devel
+    - openssl-devel
+    - ca-certificates
+
+nginx_custom_configure_flags:
+  - "--prefix={{ nginx_custom_prefix }}"
+  - "--sbin-path={{ nginx_custom_prefix }}/sbin/nginx"
+  - "--conf-path={{ nginx_custom_prefix }}/conf/nginx.conf"
+  - "--pid-path={{ nginx_custom_prefix }}/logs/nginx.pid"
+  - "--lock-path={{ nginx_custom_prefix }}/logs/nginx.lock"
+  - "--error-log-path={{ nginx_custom_prefix }}/logs/error.log"
+  - "--http-log-path={{ nginx_custom_prefix }}/logs/access.log"
+  - "--http-client-body-temp-path={{ nginx_custom_prefix }}/client_body_temp"
+  - "--http-proxy-temp-path={{ nginx_custom_prefix }}/proxy_temp"
+  - "--http-fastcgi-temp-path={{ nginx_custom_prefix }}/fastcgi_temp"
+  - "--http-uwsgi-temp-path={{ nginx_custom_prefix }}/uwsgi_temp"
+  - "--http-scgi-temp-path={{ nginx_custom_prefix }}/scgi_temp"
+  - "--with-http_ssl_module"
+  - "--with-http_v2_module"
+  - "--with-http_gzip_static_module"
+  - "--with-threads"

@@ -1,0 +1,6 @@
+---
+- name: Install nginx into a custom top-level prefix
+  hosts: custom_nginx
+  become: true
+  roles:
+    - custom_nginx

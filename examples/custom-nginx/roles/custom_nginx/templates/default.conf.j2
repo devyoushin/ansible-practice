@@ -1,0 +1,20 @@
+server {
+    listen {{ nginx_custom_port }};
+    server_name {{ nginx_custom_server_name }};
+
+    root {{ nginx_custom_prefix }}/html;
+    index index.html;
+
+    access_log {{ nginx_custom_prefix }}/logs/default.access.log main;
+    error_log {{ nginx_custom_prefix }}/logs/default.error.log warn;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    location = /health {
+        access_log off;
+        add_header Content-Type text/plain;
+        return 200 "ok\n";
+    }
+}

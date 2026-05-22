@@ -1,0 +1,30 @@
+user {{ nginx_custom_user }} {{ nginx_custom_group }};
+worker_processes {{ nginx_custom_worker_processes }};
+
+error_log {{ nginx_custom_prefix }}/logs/error.log warn;
+pid {{ nginx_custom_prefix }}/logs/nginx.pid;
+
+events {
+    worker_connections {{ nginx_custom_worker_connections }};
+}
+
+http {
+    include       {{ nginx_custom_prefix }}/conf/mime.types;
+    default_type  application/octet-stream;
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log {{ nginx_custom_prefix }}/logs/access.log main;
+
+    sendfile on;
+    tcp_nopush on;
+    keepalive_timeout {{ nginx_custom_keepalive_timeout }};
+    client_max_body_size {{ nginx_custom_client_max_body_size }};
+
+    gzip on;
+    gzip_types text/plain text/css application/json application/javascript application/xml;
+
+    include {{ nginx_custom_prefix }}/conf/conf.d/*.conf;
+}

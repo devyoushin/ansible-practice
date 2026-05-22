@@ -1,0 +1,14 @@
+---
+- name: reload systemd
+  ansible.builtin.systemd:
+    daemon_reload: true
+
+- name: restart custom nginx
+  ansible.builtin.systemd:
+    name: "{{ nginx_custom_service_name }}"
+    state: restarted
+
+- name: reload custom nginx
+  ansible.builtin.systemd:
+    name: "{{ nginx_custom_service_name }}"
+    state: reloaded

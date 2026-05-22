@@ -1,0 +1,15 @@
+[Unit]
+Description=Custom Nginx installed under {{ nginx_custom_prefix }}
+After=network.target
+
+[Service]
+Type=forking
+PIDFile={{ nginx_custom_prefix }}/logs/nginx.pid
+ExecStartPre={{ nginx_custom_prefix }}/sbin/nginx -t -c {{ nginx_custom_prefix }}/conf/nginx.conf
+ExecStart={{ nginx_custom_prefix }}/sbin/nginx -c {{ nginx_custom_prefix }}/conf/nginx.conf
+ExecReload={{ nginx_custom_prefix }}/sbin/nginx -s reload
+ExecStop={{ nginx_custom_prefix }}/sbin/nginx -s quit
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
