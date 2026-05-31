@@ -7,11 +7,11 @@ Terraform으로 프로비저닝된 AWS 인프라를 Ansible로 구성 관리하�
 ## 어디서 시작할까
 
 - 문서 지도: `docs/README.md`
-- 기초 학습: `basics/README.md`
-- 실행 예제: `examples/README.md`
+- 기초 학습: `ops/basics/README.md`
+- 실행 예제: `ops/examples/README.md`
 - AI 작업 지침: `CLAUDE.md`
 - Codex 작업 지침: `AGENTS.md` → `CLAUDE.md`
-- 전체 배포 진입점: `playbooks/site.yml`
+- 전체 배포 진입점: `ops/playbooks/site.yml`
 
 ---
 
@@ -22,82 +22,39 @@ ansible-practice/
 ├── README.md                      # 프로젝트 입구
 ├── CLAUDE.md                      # Claude/Codex 공통 작업 지침 원본
 ├── AGENTS.md -> CLAUDE.md         # Codex용 지침 링크
-├── ansible.cfg                    # Ansible 전역 설정 (vault, forks, callback 등)
-├── requirements.yml               # Galaxy 컬렉션/롤 의존성
-├── .yamllint                      # YAML 린트 규칙
 ├── docs/                          # 문서 규칙, 템플릿, AI 에이전트 지침
 │   ├── README.md
 │   ├── agents/
 │   ├── rules/
 │   └── templates/
-│
-├── inventories/
-│   ├── dev/
-│   │   ├── hosts.ini              # 정적 인벤토리 (dev)
-│   │   └── group_vars/
-│   │       ├── all.yml            # 환경 변수
-│   │       └── vault.yml          # 암호화 시크릿 (ansible-vault)
-│   ├── staging/  (동일 구조)
-│   ├── prod/     (동일 구조)
-│   └── aws/
-│       └── ec2.yml                # AWS 동적 인벤토리 (EC2 태그 기반)
-│
-├── playbooks/
-│   ├── site.yml                   # 전체 오케스트레이션 (메인)
-│   ├── rolling_update.yml         # 무중단 롤링 업데이트 (25% serial)
-│   ├── blue_green_deploy.yml      # Blue-Green 배포 (즉시 롤백 가능)
-│   ├── os_upgrade.yml             # RHEL/Rocky OS 버전 업그레이드 (serial: 1)
-│   ├── maintenance.yml            # 운영 유지보수 (디스크/로그/패키지)
-│   ├── incident_response.yml      # 장애 자동 대응 (디스크/서비스/메모리)
-│   ├── data_migration.yml         # 대용량 데이터 마이그레이션
-│   ├── data_migration_examples.yml # 마이그레이션 시나리오 예제
-│   ├── data_migration_verify.yml  # 마이그레이션 결과 검증
-│   ├── database.yml               # DB 단독 배포
-│   ├── app.yml                    # 앱 단독 배포
-│   ├── monitoring.yml             # 모니터링 배포
-│   ├── webserver.yml              # 웹서버 단독 배포
-│   └── common.yml                 # 공통 초기화 단독 실행
-│
-├── roles/
-│   ├── common/                    # 공통 초기화 (패키지, NTP, sysctl)
-│   ├── security/                  # 보안 강화 (SSH, firewalld, auditd)
-│   ├── webserver/                 # Nginx 웹서버
-│   ├── ssl/                       # TLS 인증서 (Let's Encrypt / 자체 서명)
-│   ├── database/                  # MariaDB (replication, backup)
-│   ├── app/                       # Spring Boot 앱 (systemd, health check)
-│   ├── haproxy/                   # 로드밸런서
-│   ├── monitoring/                # Node Exporter + Prometheus + Alertmanager
-│   ├── redis/                     # Redis 7 + Sentinel (HA)
-│   ├── tomcat/                    # WAR 배포용 독립 Tomcat (레거시/멀티앱)
-│   ├── os_upgrade/                # RHEL/Rocky OS 버전 업그레이드 (leapp/dnf)
-│   └── data_migration/            # 대용량 데이터 이전
-│
-├── molecule/
-│   └── default/                   # 롤 단위 테스트 (Docker)
-│
-├── filter_plugins/
-│   └── custom_filters.py          # 커스텀 Jinja2 필터
-│
-└── .github/
-    └── workflows/
-        ├── ci.yml                 # PR: lint → syntax-check → molecule
-        └── deploy.yml             # CD: dev 자동배포, prod 수동승인
+└── ops/                           # 실제 Ansible 실행 자산
+    ├── ansible.cfg                # Ansible 전역 설정
+    ├── requirements.yml           # Galaxy 컬렉션/롤 의존성
+    ├── .yamllint                  # YAML 린트 규칙
+    ├── basics/                    # 기초 학습 문서와 예제
+    ├── examples/                  # 독립 실행 예제
+    ├── inventories/               # dev/staging/prod/aws 인벤토리
+    ├── playbooks/                 # 배포, 운영, 장애 대응 플레이북
+    ├── roles/                     # 재사용 가능한 롤
+    ├── molecule/                  # 롤 단위 테스트
+    ├── filter_plugins/            # 커스텀 Jinja2 필터
+    └── github-workflows/          # GitHub Actions 워크플로 예시
 ```
 
 ## 구조 기준
 
-이 저장소는 문서와 실행 가능한 Ansible 자산이 함께 있는 실전형 저장소입니다. `prometheus-practice`처럼 공통 문서 보조 자료는 `docs/`에 모으고, 실제 실행 자산은 Ansible 표준 경로에 둡니다.
+이 저장소는 문서와 실행 가능한 Ansible 자산이 함께 있는 실전형 저장소입니다. `prometheus-practice`처럼 공통 문서 보조 자료는 `docs/`에 모으고, 실제 실행 자산은 `ops/` 아래에 둡니다.
 
 | 경로 | 역할 |
 |------|------|
 | `docs/` | AI 에이전트 지침, 작성 규칙, 템플릿 |
-| `basics/` | Ansible 기초 학습 문서와 짧은 예제 |
-| `examples/` | 독립 실행 예제 |
-| `inventories/` | 환경별 인벤토리와 group_vars |
-| `playbooks/` | 배포, 운영, 장애 대응 실행 단위 |
-| `roles/` | 재사용 가능한 구성 관리 단위 |
-| `molecule/` | 롤 테스트 |
-| `filter_plugins/` | 커스텀 Jinja2 필터 |
+| `ops/basics/` | Ansible 기초 학습 문서와 짧은 예제 |
+| `ops/examples/` | 독립 실행 예제 |
+| `ops/inventories/` | 환경별 인벤토리와 group_vars |
+| `ops/playbooks/` | 배포, 운영, 장애 대응 실행 단위 |
+| `ops/roles/` | 재사용 가능한 구성 관리 단위 |
+| `ops/molecule/` | 롤 테스트 |
+| `ops/filter_plugins/` | 커스텀 Jinja2 필터 |
 
 `CLAUDE.md`와 `AGENTS.md`는 별도 파일로 관리하지 않습니다. `AGENTS.md`는 `CLAUDE.md`를 가리키는 심볼릭 링크이므로, 작업 지침은 `CLAUDE.md`만 수정하면 됩니다.
 
@@ -107,9 +64,9 @@ ansible-practice/
 
 | 환경 | 인벤토리 | 웹서버 | 앱서버 | DB | LB | 모니터링 |
 |------|----------|--------|--------|-----|-----|----------|
-| dev | `inventories/dev` | 2 | 1 | 1 | 1 | 1 |
-| staging | `inventories/staging` | 2 | 2 | 1 | 1 | 1 |
-| prod | `inventories/prod` | 3 | 3 | 2(+replica) | 2(HA) | 1 |
+| dev | `ops/inventories/dev` | 2 | 1 | 1 | 1 | 1 |
+| staging | `ops/inventories/staging` | 2 | 2 | 1 | 1 | 1 |
+| prod | `ops/inventories/prod` | 3 | 3 | 2(+replica) | 2(HA) | 1 |
 
 ---
 
@@ -119,7 +76,7 @@ ansible-practice/
 
 ```bash
 pip install ansible boto3
-ansible-galaxy install -r requirements.yml
+ansible-galaxy install -r ops/requirements.yml
 ```
 
 ### 2. Vault 비밀번호 설정
@@ -130,17 +87,17 @@ echo "your-vault-password" > ~/.vault_pass
 chmod 600 ~/.vault_pass
 
 # vault.yml 암호화 (시크릿 파일)
-ansible-vault encrypt inventories/dev/group_vars/vault.yml
+ansible-vault encrypt ops/ops/inventories/dev/group_vars/vault.yml
 ```
 
 ### 3. 전체 배포
 
 ```bash
 # dev 전체 배포
-ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml
+ansible-playbook -i ops/ops/inventories/dev/hosts.ini ops/playbooks/site.yml
 
 # prod 전체 배포 (vault 자동 복호화)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml
 ```
 
 ---
@@ -151,20 +108,20 @@ ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml
 
 ```bash
 # 웹서버만 재배포
-ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml --tags webserver
+ansible-playbook -i ops/ops/inventories/dev/hosts.ini ops/playbooks/site.yml --tags webserver
 
 # 보안 설정만 갱신
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml --tags security
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml --tags security
 
 # 특정 서버만 실행
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml --limit prod-web-01
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml --limit prod-web-01
 ```
 
 ### 무중단 롤링 업데이트
 
 ```bash
 # 앱 v2.1.0 으로 롤링 업데이트 (25%씩 순차)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/rolling_update.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/rolling_update.yml \
   -e "app_version=2.1.0"
 ```
 
@@ -172,11 +129,11 @@ ansible-playbook -i inventories/prod/hosts.ini playbooks/rolling_update.yml \
 
 ```bash
 # 새 버전 Green 슬롯에 배포 후 LB 전환
-ansible-playbook -i inventories/prod/hosts.ini playbooks/blue_green_deploy.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/blue_green_deploy.yml \
   -e "app_version=2.1.0"
 
 # 문제 발생 시 1초 이내 이전 버전(Blue)으로 즉시 롤백
-ansible-playbook -i inventories/prod/hosts.ini playbooks/blue_green_deploy.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/blue_green_deploy.yml \
   -e "app_version=2.0.0 rollback=true"
 ```
 
@@ -192,12 +149,12 @@ ansible-playbook -i inventories/prod/hosts.ini playbooks/blue_green_deploy.yml \
 
 ```bash
 # Let's Encrypt 인증서 발급 (도메인 지정 필수)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --tags ssl \
   -e "ssl_domains=['example.com','www.example.com'] ssl_email=admin@example.com"
 
 # 개발/스테이징용 자체 서명 인증서 생성
-ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml \
+ansible-playbook -i ops/ops/inventories/dev/hosts.ini ops/playbooks/site.yml \
   --tags ssl \
   -e "ssl_mode=self_signed"
 ```
@@ -206,11 +163,11 @@ ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml \
 
 ```bash
 # Redis 단독 배포 (기본 설정)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --tags redis
 
 # Redis Sentinel (HA) 포함 배포
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --tags redis \
   -e "redis_sentinel_enabled=true redis_sentinel_quorum=2"
 ```
@@ -219,23 +176,23 @@ ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
 
 ```bash
 # 전체 서버 장애 진단 및 자동 복구 시도
-ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml
 
 # 시나리오별 단독 실행
-ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --tags disk_full     # 디스크 꽉 참 → 로그 정리, journald 정리
 
-ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --tags service_down  # 서비스 다운 → 자동 재시작
 
-ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --tags high_memory   # 메모리 부족 → PageCache 해제
 
-ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --tags oom_check     # OOM-Killer 이력 확인
 
 # 특정 서버만 대응
-ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --limit prod-app-01 --tags disk_full,service_down
 ```
 
@@ -243,13 +200,13 @@ ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
 
 ```bash
 # 디스크 공간 점검
-ansible-playbook -i inventories/prod/hosts.ini playbooks/maintenance.yml --tags disk_check
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/maintenance.yml --tags disk_check
 
 # 오래된 로그 정리
-ansible-playbook -i inventories/prod/hosts.ini playbooks/maintenance.yml --tags log_cleanup
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/maintenance.yml --tags log_cleanup
 
 # 보안 패키지 업데이트 (webserver만)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/maintenance.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/maintenance.yml \
   --tags pkg_update --limit webservers
 ```
 
@@ -258,30 +215,30 @@ ansible-playbook -i inventories/prod/hosts.ini playbooks/maintenance.yml \
 ```bash
 # --check: 실제 변경 없이 무엇이 바뀌는지 확인
 # --diff: 파일 변경 내용 diff 출력
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml --check --diff
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml --check --diff
 ```
 
 ### AWS 동적 인벤토리
 
 ```bash
 # EC2 태그 기반 인벤토리 목록 확인
-ansible-inventory -i inventories/aws/ec2.yml --graph
+ansible-inventory -i ops/ops/inventories/aws/ec2.yml --graph
 
 # 동적 인벤토리로 배포
-ansible-playbook -i inventories/aws/ec2.yml playbooks/site.yml
+ansible-playbook -i ops/ops/inventories/aws/ec2.yml ops/playbooks/site.yml
 ```
 
 ### Ad-hoc 커맨드
 
 ```bash
 # 전체 서버 디스크 확인
-ansible all -i inventories/prod/hosts.ini -m shell -a "df -h"
+ansible all -i ops/ops/inventories/prod/hosts.ini -m shell -a "df -h"
 
 # 서비스 상태 확인
-ansible webservers -i inventories/prod/hosts.ini -m service -a "name=nginx state=started"
+ansible webservers -i ops/ops/inventories/prod/hosts.ini -m service -a "name=nginx state=started"
 
 # Fact 수집 (서버 정보 조회)
-ansible prod-web-01 -i inventories/prod/hosts.ini -m setup -a "filter=ansible_memory_mb"
+ansible prod-web-01 -i ops/ops/inventories/prod/hosts.ini -m setup -a "filter=ansible_memory_mb"
 ```
 
 ---
@@ -292,11 +249,11 @@ ansible prod-web-01 -i inventories/prod/hosts.ini -m setup -a "filter=ansible_me
 
 ```bash
 # 파일 암호화
-ansible-vault encrypt inventories/prod/group_vars/vault.yml
+ansible-vault encrypt ops/inventories/prod/group_vars/vault.yml
 
 # 암호화된 파일 확인/편집
-ansible-vault view inventories/prod/group_vars/vault.yml
-ansible-vault edit inventories/prod/group_vars/vault.yml
+ansible-vault view ops/inventories/prod/group_vars/vault.yml
+ansible-vault edit ops/inventories/prod/group_vars/vault.yml
 
 # 단일 값 암호화 (변수 값으로 사용)
 ansible-vault encrypt_string 'my-secret-password' --name 'db_password'
@@ -329,7 +286,7 @@ role defaults → inventory group_vars → inventory host_vars
 pip install molecule molecule-docker
 
 # 특정 롤 테스트
-cd roles/common
+cd ops/roles/common
 molecule test         # 전체 (create → converge → verify → destroy)
 molecule converge     # 롤 적용만
 molecule verify       # 검증만
@@ -342,19 +299,19 @@ molecule destroy      # 컨테이너 삭제
 
 ```bash
 # [권장] 먼저 dry-run으로 업그레이드 가능 여부 점검
-ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/os_upgrade.yml \
   -e "os_upgrade_target_version=9 os_upgrade_dry_run=true"
 
 # 특정 서버 1대만 업그레이드 (검증 후 전체 진행)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/os_upgrade.yml \
   -e "os_upgrade_target_version=9" --limit prod-app-01
 
 # 사전 점검 + 백업만 실행 (업그레이드 없음)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/os_upgrade.yml \
   --tags precheck,backup -e "os_upgrade_target_version=9"
 
 # 전체 앱서버 순차 업그레이드 (serial: 1 — 1대씩 자동 진행)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/os_upgrade.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/os_upgrade.yml \
   -e "os_upgrade_target_version=9" --limit appservers
 ```
 
@@ -407,13 +364,13 @@ main 머지
 
 | Terraform | Ansible | 역할 |
 |-----------|---------|------|
-| `modules/` | `roles/` | 재사용 가능한 컴포넌트 |
-| `envs/dev/`, `envs/prod/` | `inventories/dev/`, `inventories/prod/` | 환경별 설정 |
+| `modules/` | `ops/roles/` | 재사용 가능한 컴포넌트 |
+| `envs/dev/`, `envs/prod/` | `ops/ops/inventories/dev/`, `ops/ops/inventories/prod/` | 환경별 설정 |
 | `terraform.tfvars` | `group_vars/all.yml` | 환경별 변수값 |
 | `variables.tf` | `defaults/main.yml` | 변수 정의 및 기본값 |
 | `outputs.tf` | `register` + `debug` | 결과값 출력 |
-| `provider.tf` + `backend.tf` | `ansible.cfg` | 도구 설정 |
-| `main.tf` (envs) | `playbooks/site.yml` | 전체 오케스트레이션 |
+| `provider.tf` + `backend.tf` | `ops/ansible.cfg` | 도구 설정 |
+| `main.tf` (envs) | `ops/playbooks/site.yml` | 전체 오케스트레이션 |
 | Terraform Cloud / AWS Secrets Manager | Ansible Vault | 시크릿 관리 |
 
 ---

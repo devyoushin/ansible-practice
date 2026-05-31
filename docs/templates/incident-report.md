@@ -28,16 +28,16 @@
 
 ## 3. 근본 원인
 
-**관련 롤**: `roles/{롤명}/tasks/{파일}.yml`
+**관련 롤**: `ops/roles/{롤명}/tasks/{파일}.yml`
 
 **진단에 사용한 명령어**:
 ```bash
 # Ad-hoc 진단
-ansible -i inventories/prod/hosts.ini {호스트그룹} -m shell \
+ansible -i ops/ops/inventories/prod/hosts.ini {호스트그룹} -m shell \
   -a "{진단 명령어}"
 
 # 장애 대응 플레이북 실행
-ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --tags {태그}
 ```
 
@@ -62,7 +62,7 @@ ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
 
 | 대책 | 관련 파일 | 완료 기한 |
 |------|----------|---------|
-| {대책} | `roles/{롤명}/` 또는 `rules/` | {날짜} |
+| {대책} | `ops/roles/{롤명}/` 또는 `rules/` | {날짜} |
 
 ---
 

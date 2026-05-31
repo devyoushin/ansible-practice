@@ -1,4 +1,5 @@
-logs/*.log
-tmp/
+.claude/
+ops/logs/*.log
+ops/tmp/
 
-!logs/.gitkeep
+!ops/logs/.gitkeep

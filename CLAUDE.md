@@ -10,14 +10,6 @@ Terraform으로 프로비저닝된 AWS 인프라를 Ansible로 구성 관리하�
 ansible-practice/
 ├── CLAUDE.md                  # 이 파일 (자동 로드)
 ├── AGENTS.md -> CLAUDE.md     # Codex 작업 지침 링크
-├── .claude/
-│   ├── settings.json          # 권한 설정 (prod 실행 차단) + PostToolUse 훅
-│   └── commands/              # 커스텀 슬래시 명령어
-│       ├── new-doc.md         # /new-doc — 새 롤/플레이북 문서 생성
-│       ├── new-runbook.md     # /new-runbook — 새 운영 런북 생성
-│       ├── review-doc.md      # /review-doc — 롤/플레이북 검토
-│       ├── add-troubleshooting.md  # /add-troubleshooting — 트러블슈팅 추가
-│       └── search-kb.md       # /search-kb — 지식베이스 검색
 ├── docs/
 │   ├── README.md              # 문서 보조 자료 안내
 │   ├── agents/                # 전문 에이전트 정의
@@ -34,36 +26,14 @@ ansible-practice/
 │       ├── ansible-conventions.md
 │       ├── security-checklist.md
 │       └── monitoring.md
-├── ansible.cfg                # Ansible 전역 설정
-├── requirements.yml           # Galaxy 컬렉션 의존성
-├── inventories/
-│   ├── dev/                   # dev 환경 인벤토리 + group_vars
-│   ├── staging/               # staging 환경
-│   ├── prod/                  # prod 환경 (HA 구성)
-│   └── aws/ec2.yml            # AWS 동적 인벤토리 (EC2 태그 기반)
-├── playbooks/                 # 플레이북
-│   ├── site.yml               # 전체 오케스트레이션 (메인 진입점)
-│   ├── rolling_update.yml     # 무중단 롤링 업데이트 (25% serial)
-│   ├── blue_green_deploy.yml  # Blue-Green 배포
-│   ├── os_upgrade.yml         # RHEL/Rocky OS 버전 업그레이드
-│   ├── maintenance.yml        # 운영 유지보수
-│   ├── incident_response.yml  # 장애 자동 대응
-│   └── data_migration.yml     # 대용량 데이터 마이그레이션
-├── roles/                     # 롤
-│   ├── common/                # 공통 초기화 (패키지, NTP, sysctl, ulimit)
-│   ├── security/              # 보안 강화 (SSH, firewalld, auditd)
-│   ├── webserver/             # Nginx
-│   ├── ssl/                   # TLS 인증서
-│   ├── database/              # MariaDB
-│   ├── app/                   # Spring Boot
-│   ├── haproxy/               # HAProxy 로드밸런서
-│   ├── monitoring/            # Node Exporter + Prometheus
-│   ├── redis/                 # Redis 7 + Sentinel
-│   ├── tomcat/                # WAR 배포용 Tomcat
-│   ├── os_upgrade/            # RHEL/Rocky OS 업그레이드
-│   └── data_migration/        # 대용량 데이터 이전
-├── molecule/default/          # 롤 단위 테스트 (Docker)
-└── filter_plugins/            # 커스텀 Jinja2 필터
+└── ops/                       # 실제 Ansible 실행 자산
+    ├── ansible.cfg            # Ansible 전역 설정
+    ├── requirements.yml       # Galaxy 컬렉션 의존성
+    ├── inventories/           # dev/staging/prod/aws 인벤토리
+    ├── playbooks/             # 배포, 운영, 장애 대응 플레이북
+    ├── roles/                 # 재사용 가능한 롤
+    ├── molecule/default/      # 롤 단위 테스트
+    └── filter_plugins/        # 커스텀 Jinja2 필터
 ```
 
 AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심볼릭 링크로만 유지합니다.
@@ -74,9 +44,9 @@ AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심
 
 | 명령어 | 설명 | 사용 예시 |
 |--------|------|---------|
-| `/new-doc` | 새 롤/플레이북 문서 생성 | `/new-doc roles/kafka` |
+| `/new-doc` | 새 롤/플레이북 문서 생성 | `/new-doc ops/roles/kafka` |
 | `/new-runbook` | 새 운영 런북 생성 | `/new-runbook MariaDB 페일오버` |
-| `/review-doc` | 롤/플레이북 검토 | `/review-doc roles/database` |
+| `/review-doc` | 롤/플레이북 검토 | `/review-doc ops/roles/database` |
 | `/add-troubleshooting` | 트러블슈팅 케이스 추가 | `/add-troubleshooting 복제 지연` |
 | `/search-kb` | 지식베이스 검색 | `/search-kb 롤링 업데이트 serial` |
 
@@ -115,23 +85,23 @@ AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심
 
 ```bash
 # 드라이런 (필수 — prod 실행 전)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --check --diff --ask-vault-pass
 
 # 전체 배포
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --ask-vault-pass
 
 # 롤링 업데이트 (v2.1.0)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/rolling_update.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/rolling_update.yml \
   -e "app_version=2.1.0" --ask-vault-pass
 
 # 장애 대응 (디스크 풀만)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --tags disk_full
 
 # 유지보수 (로그 정리)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/maintenance.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/maintenance.yml \
   --tags log_cleanup
 ```
 

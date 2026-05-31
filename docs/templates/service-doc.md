@@ -72,15 +72,15 @@ dependencies:
 
 ```bash
 # 드라이런 (변경 사항 확인)
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --tags {롤명} --check
 
 # 실제 실행
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --tags {롤명} --ask-vault-pass
 
 # 특정 호스트만
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --tags {롤명} --limit webservers
 ```
 

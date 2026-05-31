@@ -1,7 +1,7 @@
 # Runbook: {작업명}
 
 > **분류**: {배포 | 유지보수 | 긴급 대응 | 마이그레이션 | OS 업그레이드}
-> **대상 플레이북**: `playbooks/{파일명}.yml`
+> **대상 플레이북**: `ops/playbooks/{파일명}.yml`
 > **영향 환경**: {dev | staging | prod}
 > **작성일**: {YYYY-MM-DD}
 > **예상 소요 시간**: {N분}
@@ -27,10 +27,10 @@
 ansible --version
 
 # 인벤토리 호스트 목록 확인
-ansible-inventory -i inventories/{env}/hosts.ini --list
+ansible-inventory -i ops/inventories/{env}/hosts.ini --list
 
 # 연결 테스트
-ansible -i inventories/{env}/hosts.ini all -m ping
+ansible -i ops/inventories/{env}/hosts.ini all -m ping
 ```
 
 ---
@@ -38,7 +38,7 @@ ansible -i inventories/{env}/hosts.ini all -m ping
 ## Step 1: 드라이런 (필수)
 
 ```bash
-ansible-playbook -i inventories/{env}/hosts.ini playbooks/{플레이북}.yml \
+ansible-playbook -i ops/inventories/{env}/hosts.ini ops/playbooks/{플레이북}.yml \
   --check \
   --diff \
   --ask-vault-pass
@@ -51,7 +51,7 @@ ansible-playbook -i inventories/{env}/hosts.ini playbooks/{플레이북}.yml \
 ## Step 2: {작업 내용}
 
 ```bash
-ansible-playbook -i inventories/{env}/hosts.ini playbooks/{플레이북}.yml \
+ansible-playbook -i ops/inventories/{env}/hosts.ini ops/playbooks/{플레이북}.yml \
   --ask-vault-pass \
   {옵션}
 ```
@@ -59,7 +59,7 @@ ansible-playbook -i inventories/{env}/hosts.ini playbooks/{플레이북}.yml \
 또는 부분 실행:
 
 ```bash
-ansible-playbook -i inventories/{env}/hosts.ini playbooks/{플레이북}.yml \
+ansible-playbook -i ops/inventories/{env}/hosts.ini ops/playbooks/{플레이북}.yml \
   --tags {태그} \
   --limit {호스트그룹} \
   --ask-vault-pass
@@ -71,11 +71,11 @@ ansible-playbook -i inventories/{env}/hosts.ini playbooks/{플레이북}.yml \
 
 ```bash
 # 서비스 상태 확인
-ansible -i inventories/{env}/hosts.ini {호스트그룹} -m shell \
+ansible -i ops/inventories/{env}/hosts.ini {호스트그룹} -m shell \
   -a "systemctl status {서비스명}"
 
 # 로그 확인
-ansible -i inventories/{env}/hosts.ini {호스트그룹} -m shell \
+ansible -i ops/inventories/{env}/hosts.ini {호스트그룹} -m shell \
   -a "journalctl -u {서비스명} --since '5 minutes ago'"
 ```
 
@@ -89,7 +89,7 @@ ansible -i inventories/{env}/hosts.ini {호스트그룹} -m shell \
 
 ```bash
 # 이전 버전으로 롤백
-ansible-playbook -i inventories/{env}/hosts.ini playbooks/{플레이북}.yml \
+ansible-playbook -i ops/inventories/{env}/hosts.ini ops/playbooks/{플레이북}.yml \
   -e "{변수명}={이전 버전}" \
   --ask-vault-pass
 ```

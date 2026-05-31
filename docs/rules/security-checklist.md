@@ -60,9 +60,9 @@
 
 ```bash
 # 드라이런으로 변경 사항 사전 확인
-ansible-playbook -i inventories/prod/hosts.ini playbooks/site.yml \
+ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --check --diff --ask-vault-pass
 
 # ansible-lint 검사
-ansible-lint playbooks/site.yml
+ansible-lint ops/playbooks/site.yml
 ```
