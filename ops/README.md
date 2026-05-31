@@ -15,8 +15,6 @@ Ansible 실행 자산과 운영 보조 자료를 모아둔 디렉터리입니다
 | `filter_plugins/` | 커스텀 Jinja2 필터 |
 | `github-workflows/` | GitHub Actions 워크플로 예시 |
 | `scripts/` | 반복 점검용 보조 스크립트 |
-| `checklists/` | 배포 전 점검, 롤 리뷰 체크리스트 |
-| `runbooks/` | 실패 대응, Vault 회전 등 운영 절차 |
 | `outputs/` | dry-run, 점검 결과, 장애 대응 로그 보관 위치 |
 
 ## 기본 실행 흐름
@@ -30,10 +28,10 @@ ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml
 
 ## 운영 기준
 
-- prod 실행 전에는 `checklists/pre-deploy.md`를 먼저 확인합니다.
-- 롤 변경은 `checklists/role-review.md` 기준으로 리뷰합니다.
-- 실패한 배포는 `runbooks/playbook-failure.md` 흐름으로 원인을 분리합니다.
-- Vault 비밀번호나 시크릿 교체는 `runbooks/vault-rotation.md`를 사용합니다.
+- prod 실행 전에는 `../docs/checklists/pre-deploy.md`를 먼저 확인합니다.
+- 롤 변경은 `../docs/checklists/role-review.md` 기준으로 리뷰합니다.
+- 실패한 배포는 `../docs/runbooks/playbook-failure.md` 흐름으로 원인을 분리합니다.
+- Vault 비밀번호나 시크릿 교체는 `../docs/runbooks/vault-rotation.md`를 사용합니다.
 - dry-run 결과, 장애 대응 로그, 변경 전후 비교 자료는 `outputs/` 아래에 날짜별로 저장합니다.
 
 ## 보조 스크립트

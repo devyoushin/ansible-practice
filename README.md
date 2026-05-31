@@ -8,8 +8,8 @@ Terraform으로 프로비저닝된 AWS 인프라를 Ansible로 구성 관리하�
 
 - 문서 지도: `docs/README.md`
 - 운영 실행 가이드: `ops/README.md`
-- 기초 학습: `ops/basics/README.md`
-- 실행 예제: `ops/examples/README.md`
+- 기초 학습: `docs/basics/README.md`
+- 실행 예제 설명: `docs/examples/README.md`
 - AI 작업 지침: `CLAUDE.md`
 - Codex 작업 지침: `AGENTS.md` → `CLAUDE.md`
 - 전체 배포 진입점: `ops/playbooks/site.yml`
@@ -26,22 +26,23 @@ ansible-practice/
 ├── docs/                          # 문서 규칙, 템플릿, AI 에이전트 지침
 │   ├── README.md
 │   ├── agents/
+│   ├── basics/
+│   ├── checklists/
+│   ├── examples/
+│   ├── runbooks/
 │   ├── rules/
 │   └── templates/
 └── ops/                           # 실제 Ansible 실행 자산
     ├── ansible.cfg                # Ansible 전역 설정
     ├── requirements.yml           # Galaxy 컬렉션/롤 의존성
     ├── .yamllint                  # YAML 린트 규칙
-    ├── basics/                    # 기초 학습 문서와 예제
-    ├── examples/                  # 독립 실행 예제
+    ├── examples/                  # 독립 실행 예제 코드
     ├── inventories/               # dev/staging/prod/aws 인벤토리
     ├── playbooks/                 # 배포, 운영, 장애 대응 플레이북
     ├── roles/                     # 재사용 가능한 롤
     ├── molecule/                  # 롤 단위 테스트
     ├── filter_plugins/            # 커스텀 Jinja2 필터
     ├── scripts/                   # 반복 점검용 보조 스크립트
-    ├── checklists/                # 배포 전 점검, 롤 리뷰 기준
-    ├── runbooks/                  # 실패 대응, Vault 회전 등 운영 절차
     ├── outputs/                   # dry-run, 점검 결과 보관 위치
     └── github-workflows/          # GitHub Actions 워크플로 예시
 ```
@@ -52,17 +53,18 @@ ansible-practice/
 
 | 경로 | 역할 |
 |------|------|
-| `docs/` | AI 에이전트 지침, 작성 규칙, 템플릿 |
-| `ops/basics/` | Ansible 기초 학습 문서와 짧은 예제 |
-| `ops/examples/` | 독립 실행 예제 |
+| `docs/` | AI 에이전트 지침, 기초 학습, 운영 절차, 템플릿 |
+| `docs/basics/` | Ansible 기초 학습 문서와 짧은 예제 |
+| `docs/examples/` | `ops/examples/` 실행 예제 설명 |
+| `docs/checklists/` | 배포 전 점검과 롤 리뷰 기준 |
+| `docs/runbooks/` | 플레이북 실패 대응, Vault 회전 운영 절차 |
+| `ops/examples/` | 독립 실행 예제 코드 |
 | `ops/inventories/` | 환경별 인벤토리와 group_vars |
 | `ops/playbooks/` | 배포, 운영, 장애 대응 실행 단위 |
 | `ops/roles/` | 재사용 가능한 구성 관리 단위 |
 | `ops/molecule/` | 롤 테스트 |
 | `ops/filter_plugins/` | 커스텀 Jinja2 필터 |
 | `ops/scripts/` | syntax-check, dry-run, 실패 로그 추출 보조 스크립트 |
-| `ops/checklists/` | 배포 전 점검과 롤 리뷰 기준 |
-| `ops/runbooks/` | 플레이북 실패 대응, Vault 회전 운영 절차 |
 | `ops/outputs/` | dry-run, 점검 결과, 장애 대응 로그 보관 위치 |
 
 `CLAUDE.md`와 `AGENTS.md`는 별도 파일로 관리하지 않습니다. `AGENTS.md`는 `CLAUDE.md`를 가리키는 심볼릭 링크이므로, 작업 지침은 `CLAUDE.md`만 수정하면 됩니다.

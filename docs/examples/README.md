@@ -5,7 +5,7 @@
 현재 예제:
 
 ```text
-examples/custom-nginx
+ops/examples/custom-nginx
 ```
 
 `custom-nginx`는 nginx를 OS 기본 경로인 `/etc/nginx`, `/usr/sbin/nginx`에 설치하지 않고, 직접 지정한 `/nginx` 아래에 소스 빌드로 설치하는 예제입니다.
@@ -48,20 +48,19 @@ systemd 서비스 등록
 순서대로 보면 이해하기 좋습니다.
 
 ```text
-examples/custom-nginx/README.md
-examples/custom-nginx/site.yml
-examples/custom-nginx/offline-vars.yml
-examples/custom-nginx/roles/custom_nginx/defaults/main.yml
-examples/custom-nginx/roles/custom_nginx/tasks/main.yml
-examples/custom-nginx/roles/custom_nginx/templates/nginx.conf.j2
-examples/custom-nginx/roles/custom_nginx/templates/nginx-custom.service.j2
+docs/examples/custom-nginx/README.md
+ops/examples/custom-nginx/site.yml
+ops/examples/custom-nginx/offline-vars.yml
+ops/examples/custom-nginx/roles/custom_nginx/defaults/main.yml
+ops/examples/custom-nginx/roles/custom_nginx/tasks/main.yml
+ops/examples/custom-nginx/roles/custom_nginx/templates/nginx.conf.j2
+ops/examples/custom-nginx/roles/custom_nginx/templates/nginx-custom.service.j2
 ```
 
 ## 디렉토리 구조 이해
 
 ```text
-examples/custom-nginx/
-├── README.md
+ops/examples/custom-nginx/
 ├── site.yml
 ├── offline-vars.yml
 ├── inventory/
@@ -98,7 +97,7 @@ examples/custom-nginx/
 외부망 접근이 안 되는 환경이라면 먼저 파일을 준비합니다.
 
 ```text
-examples/custom-nginx/files/nginx-1.26.2.tar.gz
+ops/examples/custom-nginx/files/nginx-1.26.2.tar.gz
 ```
 
 빌드 의존성을 내부 repo로 설치할 수 있으면 `offline-vars.yml`에서 이렇게 둡니다.
@@ -118,18 +117,18 @@ RPM/DEB 파일까지 Ansible로 전달하려면 이렇게 둡니다.
 ```yaml
 nginx_custom_dependency_install_mode: local_files
 nginx_custom_dependency_package_files:
-  - examples/custom-nginx/files/rpms/gcc-1.rpm
-  - examples/custom-nginx/files/rpms/make-1.rpm
-  - examples/custom-nginx/files/rpms/pcre-devel-1.rpm
-  - examples/custom-nginx/files/rpms/zlib-devel-1.rpm
-  - examples/custom-nginx/files/rpms/openssl-devel-1.rpm
+  - ops/examples/custom-nginx/files/rpms/gcc-1.rpm
+  - ops/examples/custom-nginx/files/rpms/make-1.rpm
+  - ops/examples/custom-nginx/files/rpms/pcre-devel-1.rpm
+  - ops/examples/custom-nginx/files/rpms/zlib-devel-1.rpm
+  - ops/examples/custom-nginx/files/rpms/openssl-devel-1.rpm
 ```
 
 RPM은 실제 환경의 OS 버전과 아키텍처에 맞아야 합니다. Rocky 9용 RPM을 Rocky 8에 그대로 쓰는 식으로 섞으면 의존성 문제가 납니다.
 
 ## 실행 명령
 
-대상 서버를 `examples/custom-nginx/inventory/hosts.ini`에 적습니다.
+대상 서버를 `ops/examples/custom-nginx/inventory/hosts.ini`에 적습니다.
 
 ```ini
 [custom_nginx]
@@ -140,9 +139,9 @@ test-vm ansible_host=192.168.56.10 ansible_user=your_user
 
 ```bash
 ansible-playbook \
-  -i examples/custom-nginx/inventory/hosts.ini \
-  examples/custom-nginx/site.yml \
-  -e @examples/custom-nginx/offline-vars.yml
+  -i ops/examples/custom-nginx/inventory/hosts.ini \
+  ops/examples/custom-nginx/site.yml \
+  -e @ops/examples/custom-nginx/offline-vars.yml
 ```
 
 ## 실행 후 확인

@@ -17,6 +17,10 @@ ansible-practice/
 │   │   ├── playbook-reviewer.md
 │   │   ├── security-auditor.md
 │   │   └── role-designer.md
+│   ├── basics/                # Ansible 기초 학습 문서
+│   ├── checklists/            # 배포 전 점검, 롤 리뷰 기준
+│   ├── examples/              # ops/examples 실행 예제 설명
+│   ├── runbooks/              # 실패 대응, Vault 회전 등 운영 절차
 │   ├── templates/             # 문서 템플릿
 │   │   ├── service-doc.md
 │   │   ├── runbook.md
@@ -34,8 +38,6 @@ ansible-practice/
     ├── roles/                 # 재사용 가능한 롤
     ├── molecule/default/      # 롤 단위 테스트
     ├── scripts/               # 반복 점검용 보조 스크립트
-    ├── checklists/            # 배포 전 점검, 롤 리뷰 기준
-    ├── runbooks/              # 실패 대응, Vault 회전 등 운영 절차
     ├── outputs/               # dry-run, 점검 결과 보관 위치
     └── filter_plugins/        # 커스텀 Jinja2 필터
 ```
@@ -51,9 +53,9 @@ AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심
 | 경로 | 용도 |
 |------|------|
 | `ops/scripts/` | syntax-check, dry-run, 실패 로그 추출 보조 스크립트 |
-| `ops/checklists/` | 배포 전 점검과 롤 리뷰 체크리스트 |
-| `ops/runbooks/` | 플레이북 실패 대응, Vault 회전 런북 |
 | `ops/outputs/` | dry-run, 점검 결과, 장애 대응 로그 보관 위치 |
+| `docs/checklists/` | 배포 전 점검과 롤 리뷰 체크리스트 |
+| `docs/runbooks/` | 플레이북 실패 대응, Vault 회전 런북 |
 
 ---
 

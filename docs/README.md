@@ -5,6 +5,10 @@ Ansible 학습과 운영 보조 문서는 이 디렉터리에서 관리합니다
 | 폴더 | 내용 |
 |------|------|
 | `agents/` | Ansible 문서 작성, 플레이북 리뷰, 롤 설계, 보안 감사용 AI 작업 지침 |
+| `basics/` | Ansible 기초 학습 문서와 짧은 예제 |
+| `checklists/` | 배포 전 점검과 롤 리뷰 기준 |
+| `examples/` | `ops/examples/` 실행 예제 설명 |
+| `runbooks/` | 플레이북 실패 대응, Vault 회전 운영 절차 |
 | `rules/` | 문서 작성 규칙, Ansible 컨벤션, 보안/모니터링 체크리스트 |
 | `templates/` | 서비스 문서, 런북, 장애 보고서 템플릿 |
 
@@ -19,12 +23,13 @@ Ansible 학습과 운영 보조 문서는 이 디렉터리에서 관리합니다
 | `../ops/roles/` | 공통 초기화, 보안, 웹서버, DB, 앱, 모니터링 등 재사용 롤 |
 | `../ops/molecule/` | 롤 단위 테스트 |
 | `../ops/filter_plugins/` | 커스텀 Jinja2 필터 |
-| `../ops/basics/` | Ansible 기초 학습 문서와 예제 |
-| `../ops/examples/` | 실습 예제 |
+| `../ops/examples/` | 실습 예제 코드 |
 | `../ops/README.md` | Ansible 운영 실행 가이드 |
-| `../ops/checklists/` | 배포 전 점검과 롤 리뷰 기준 |
-| `../ops/runbooks/` | 플레이북 실패 대응, Vault 회전 운영 절차 |
 | `../ops/scripts/` | 반복 점검용 보조 스크립트 |
+| `basics/` | Ansible 기초 학습 문서와 예제 |
+| `examples/` | 실습 예제 설명 |
+| `checklists/` | 배포 전 점검과 롤 리뷰 기준 |
+| `runbooks/` | 플레이북 실패 대응, Vault 회전 운영 절차 |
 
 ## 작업 기준
 
