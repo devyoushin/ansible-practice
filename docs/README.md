@@ -8,7 +8,7 @@ Ansible 학습과 운영 보조 문서는 이 디렉터리에서 관리합니다
 | `rules/` | 문서 작성 규칙, Ansible 컨벤션, 보안/모니터링 체크리스트 |
 | `templates/` | 서비스 문서, 런북, 장애 보고서 템플릿 |
 
-실제 Ansible 실행 자산은 `ops/` 아래의 `ops/inventories/`, `ops/playbooks/`, `ops/roles/`, `ops/molecule/`, `ops/filter_plugins/`에 둡니다.
+실제 Ansible 실행 자산은 `ops/` 아래의 `inventories/`, `playbooks/`, `roles/`, `molecule/`, `filter_plugins/`에 둡니다.
 
 ## 코드 위치
 
@@ -21,6 +21,10 @@ Ansible 학습과 운영 보조 문서는 이 디렉터리에서 관리합니다
 | `../ops/filter_plugins/` | 커스텀 Jinja2 필터 |
 | `../ops/basics/` | Ansible 기초 학습 문서와 예제 |
 | `../ops/examples/` | 실습 예제 |
+| `../ops/README.md` | Ansible 운영 실행 가이드 |
+| `../ops/checklists/` | 배포 전 점검과 롤 리뷰 기준 |
+| `../ops/runbooks/` | 플레이북 실패 대응, Vault 회전 운영 절차 |
+| `../ops/scripts/` | 반복 점검용 보조 스크립트 |
 
 ## 작업 기준
 

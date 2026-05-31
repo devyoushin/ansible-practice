@@ -7,6 +7,7 @@ Terraform으로 프로비저닝된 AWS 인프라를 Ansible로 구성 관리하�
 ## 어디서 시작할까
 
 - 문서 지도: `docs/README.md`
+- 운영 실행 가이드: `ops/README.md`
 - 기초 학습: `ops/basics/README.md`
 - 실행 예제: `ops/examples/README.md`
 - AI 작업 지침: `CLAUDE.md`
@@ -38,6 +39,10 @@ ansible-practice/
     ├── roles/                     # 재사용 가능한 롤
     ├── molecule/                  # 롤 단위 테스트
     ├── filter_plugins/            # 커스텀 Jinja2 필터
+    ├── scripts/                   # 반복 점검용 보조 스크립트
+    ├── checklists/                # 배포 전 점검, 롤 리뷰 기준
+    ├── runbooks/                  # 실패 대응, Vault 회전 등 운영 절차
+    ├── outputs/                   # dry-run, 점검 결과 보관 위치
     └── github-workflows/          # GitHub Actions 워크플로 예시
 ```
 
@@ -55,6 +60,10 @@ ansible-practice/
 | `ops/roles/` | 재사용 가능한 구성 관리 단위 |
 | `ops/molecule/` | 롤 테스트 |
 | `ops/filter_plugins/` | 커스텀 Jinja2 필터 |
+| `ops/scripts/` | syntax-check, dry-run, 실패 로그 추출 보조 스크립트 |
+| `ops/checklists/` | 배포 전 점검과 롤 리뷰 기준 |
+| `ops/runbooks/` | 플레이북 실패 대응, Vault 회전 운영 절차 |
+| `ops/outputs/` | dry-run, 점검 결과, 장애 대응 로그 보관 위치 |
 
 `CLAUDE.md`와 `AGENTS.md`는 별도 파일로 관리하지 않습니다. `AGENTS.md`는 `CLAUDE.md`를 가리키는 심볼릭 링크이므로, 작업 지침은 `CLAUDE.md`만 수정하면 됩니다.
 
@@ -87,17 +96,17 @@ echo "your-vault-password" > ~/.vault_pass
 chmod 600 ~/.vault_pass
 
 # vault.yml 암호화 (시크릿 파일)
-ansible-vault encrypt ops/ops/inventories/dev/group_vars/vault.yml
+ansible-vault encrypt ops/inventories/dev/group_vars/vault.yml
 ```
 
 ### 3. 전체 배포
 
 ```bash
 # dev 전체 배포
-ansible-playbook -i ops/ops/inventories/dev/hosts.ini ops/playbooks/site.yml
+ansible-playbook -i ops/inventories/dev/hosts.ini ops/playbooks/site.yml
 
 # prod 전체 배포 (vault 자동 복호화)
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/site.yml
 ```
 
 ---
@@ -108,20 +117,20 @@ ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml
 
 ```bash
 # 웹서버만 재배포
-ansible-playbook -i ops/ops/inventories/dev/hosts.ini ops/playbooks/site.yml --tags webserver
+ansible-playbook -i ops/inventories/dev/hosts.ini ops/playbooks/site.yml --tags webserver
 
 # 보안 설정만 갱신
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml --tags security
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/site.yml --tags security
 
 # 특정 서버만 실행
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml --limit prod-web-01
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/site.yml --limit prod-web-01
 ```
 
 ### 무중단 롤링 업데이트
 
 ```bash
 # 앱 v2.1.0 으로 롤링 업데이트 (25%씩 순차)
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/rolling_update.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/rolling_update.yml \
   -e "app_version=2.1.0"
 ```
 
@@ -129,11 +138,11 @@ ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/rolling_upd
 
 ```bash
 # 새 버전 Green 슬롯에 배포 후 LB 전환
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/blue_green_deploy.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/blue_green_deploy.yml \
   -e "app_version=2.1.0"
 
 # 문제 발생 시 1초 이내 이전 버전(Blue)으로 즉시 롤백
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/blue_green_deploy.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/blue_green_deploy.yml \
   -e "app_version=2.0.0 rollback=true"
 ```
 
@@ -149,12 +158,12 @@ ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/blue_green_
 
 ```bash
 # Let's Encrypt 인증서 발급 (도메인 지정 필수)
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --tags ssl \
   -e "ssl_domains=['example.com','www.example.com'] ssl_email=admin@example.com"
 
 # 개발/스테이징용 자체 서명 인증서 생성
-ansible-playbook -i ops/ops/inventories/dev/hosts.ini ops/playbooks/site.yml \
+ansible-playbook -i ops/inventories/dev/hosts.ini ops/playbooks/site.yml \
   --tags ssl \
   -e "ssl_mode=self_signed"
 ```
@@ -163,11 +172,11 @@ ansible-playbook -i ops/ops/inventories/dev/hosts.ini ops/playbooks/site.yml \
 
 ```bash
 # Redis 단독 배포 (기본 설정)
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --tags redis
 
 # Redis Sentinel (HA) 포함 배포
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --tags redis \
   -e "redis_sentinel_enabled=true redis_sentinel_quorum=2"
 ```
@@ -176,23 +185,23 @@ ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
 
 ```bash
 # 전체 서버 장애 진단 및 자동 복구 시도
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml
 
 # 시나리오별 단독 실행
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --tags disk_full     # 디스크 꽉 참 → 로그 정리, journald 정리
 
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --tags service_down  # 서비스 다운 → 자동 재시작
 
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --tags high_memory   # 메모리 부족 → PageCache 해제
 
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --tags oom_check     # OOM-Killer 이력 확인
 
 # 특정 서버만 대응
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --limit prod-app-01 --tags disk_full,service_down
 ```
 
@@ -200,13 +209,13 @@ ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_re
 
 ```bash
 # 디스크 공간 점검
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/maintenance.yml --tags disk_check
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/maintenance.yml --tags disk_check
 
 # 오래된 로그 정리
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/maintenance.yml --tags log_cleanup
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/maintenance.yml --tags log_cleanup
 
 # 보안 패키지 업데이트 (webserver만)
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/maintenance.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/maintenance.yml \
   --tags pkg_update --limit webservers
 ```
 
@@ -215,30 +224,30 @@ ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/maintenance
 ```bash
 # --check: 실제 변경 없이 무엇이 바뀌는지 확인
 # --diff: 파일 변경 내용 diff 출력
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml --check --diff
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/site.yml --check --diff
 ```
 
 ### AWS 동적 인벤토리
 
 ```bash
 # EC2 태그 기반 인벤토리 목록 확인
-ansible-inventory -i ops/ops/inventories/aws/ec2.yml --graph
+ansible-inventory -i ops/inventories/aws/ec2.yml --graph
 
 # 동적 인벤토리로 배포
-ansible-playbook -i ops/ops/inventories/aws/ec2.yml ops/playbooks/site.yml
+ansible-playbook -i ops/inventories/aws/ec2.yml ops/playbooks/site.yml
 ```
 
 ### Ad-hoc 커맨드
 
 ```bash
 # 전체 서버 디스크 확인
-ansible all -i ops/ops/inventories/prod/hosts.ini -m shell -a "df -h"
+ansible all -i ops/inventories/prod/hosts.ini -m shell -a "df -h"
 
 # 서비스 상태 확인
-ansible webservers -i ops/ops/inventories/prod/hosts.ini -m service -a "name=nginx state=started"
+ansible webservers -i ops/inventories/prod/hosts.ini -m service -a "name=nginx state=started"
 
 # Fact 수집 (서버 정보 조회)
-ansible prod-web-01 -i ops/ops/inventories/prod/hosts.ini -m setup -a "filter=ansible_memory_mb"
+ansible prod-web-01 -i ops/inventories/prod/hosts.ini -m setup -a "filter=ansible_memory_mb"
 ```
 
 ---
@@ -299,19 +308,19 @@ molecule destroy      # 컨테이너 삭제
 
 ```bash
 # [권장] 먼저 dry-run으로 업그레이드 가능 여부 점검
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/os_upgrade.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/os_upgrade.yml \
   -e "os_upgrade_target_version=9 os_upgrade_dry_run=true"
 
 # 특정 서버 1대만 업그레이드 (검증 후 전체 진행)
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/os_upgrade.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/os_upgrade.yml \
   -e "os_upgrade_target_version=9" --limit prod-app-01
 
 # 사전 점검 + 백업만 실행 (업그레이드 없음)
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/os_upgrade.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/os_upgrade.yml \
   --tags precheck,backup -e "os_upgrade_target_version=9"
 
 # 전체 앱서버 순차 업그레이드 (serial: 1 — 1대씩 자동 진행)
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/os_upgrade.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/os_upgrade.yml \
   -e "os_upgrade_target_version=9" --limit appservers
 ```
 
@@ -365,7 +374,7 @@ main 머지
 | Terraform | Ansible | 역할 |
 |-----------|---------|------|
 | `modules/` | `ops/roles/` | 재사용 가능한 컴포넌트 |
-| `envs/dev/`, `envs/prod/` | `ops/ops/inventories/dev/`, `ops/ops/inventories/prod/` | 환경별 설정 |
+| `envs/dev/`, `envs/prod/` | `ops/inventories/dev/`, `ops/inventories/prod/` | 환경별 설정 |
 | `terraform.tfvars` | `group_vars/all.yml` | 환경별 변수값 |
 | `variables.tf` | `defaults/main.yml` | 변수 정의 및 기본값 |
 | `outputs.tf` | `register` + `debug` | 결과값 출력 |

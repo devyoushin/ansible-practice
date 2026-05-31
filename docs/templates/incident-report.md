@@ -33,11 +33,11 @@
 **진단에 사용한 명령어**:
 ```bash
 # Ad-hoc 진단
-ansible -i ops/ops/inventories/prod/hosts.ini {호스트그룹} -m shell \
+ansible -i ops/inventories/prod/hosts.ini {호스트그룹} -m shell \
   -a "{진단 명령어}"
 
 # 장애 대응 플레이북 실행
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --tags {태그}
 ```
 

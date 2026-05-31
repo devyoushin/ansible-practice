@@ -33,10 +33,27 @@ ansible-practice/
     ├── playbooks/             # 배포, 운영, 장애 대응 플레이북
     ├── roles/                 # 재사용 가능한 롤
     ├── molecule/default/      # 롤 단위 테스트
+    ├── scripts/               # 반복 점검용 보조 스크립트
+    ├── checklists/            # 배포 전 점검, 롤 리뷰 기준
+    ├── runbooks/              # 실패 대응, Vault 회전 등 운영 절차
+    ├── outputs/               # dry-run, 점검 결과 보관 위치
     └── filter_plugins/        # 커스텀 Jinja2 필터
 ```
 
 AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심볼릭 링크로만 유지합니다.
+
+---
+
+## 운영 보조 자료
+
+`ops/README.md`를 운영 실행 가이드의 기준 문서로 사용합니다.
+
+| 경로 | 용도 |
+|------|------|
+| `ops/scripts/` | syntax-check, dry-run, 실패 로그 추출 보조 스크립트 |
+| `ops/checklists/` | 배포 전 점검과 롤 리뷰 체크리스트 |
+| `ops/runbooks/` | 플레이북 실패 대응, Vault 회전 런북 |
+| `ops/outputs/` | dry-run, 점검 결과, 장애 대응 로그 보관 위치 |
 
 ---
 
@@ -85,23 +102,23 @@ AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심
 
 ```bash
 # 드라이런 (필수 — prod 실행 전)
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --check --diff --ask-vault-pass
 
 # 전체 배포
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/site.yml \
   --ask-vault-pass
 
 # 롤링 업데이트 (v2.1.0)
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/rolling_update.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/rolling_update.yml \
   -e "app_version=2.1.0" --ask-vault-pass
 
 # 장애 대응 (디스크 풀만)
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/incident_response.yml \
   --tags disk_full
 
 # 유지보수 (로그 정리)
-ansible-playbook -i ops/ops/inventories/prod/hosts.ini ops/playbooks/maintenance.yml \
+ansible-playbook -i ops/inventories/prod/hosts.ini ops/playbooks/maintenance.yml \
   --tags log_cleanup
 ```
 

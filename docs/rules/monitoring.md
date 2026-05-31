@@ -6,11 +6,11 @@
 
 ```bash
 # 모든 대상 호스트 서비스 상태
-ansible -i ops/ops/inventories/prod/hosts.ini webservers -m shell \
+ansible -i ops/inventories/prod/hosts.ini webservers -m shell \
   -a "systemctl status nginx"
 
 # 최근 에러 로그 확인
-ansible -i ops/ops/inventories/prod/hosts.ini all -m shell \
+ansible -i ops/inventories/prod/hosts.ini all -m shell \
   -a "journalctl -u {{ service }} --since '10 minutes ago' | grep -i error"
 ```
 
@@ -18,11 +18,11 @@ ansible -i ops/ops/inventories/prod/hosts.ini all -m shell \
 
 ```bash
 # 웹서버 응답 확인
-ansible -i ops/ops/inventories/prod/hosts.ini webservers -m uri \
+ansible -i ops/inventories/prod/hosts.ini webservers -m uri \
   -a "url=http://localhost/health return_content=yes"
 
 # 포트 리스닝 확인
-ansible -i ops/ops/inventories/prod/hosts.ini all -m shell \
+ansible -i ops/inventories/prod/hosts.ini all -m shell \
   -a "ss -tlnp | grep LISTEN"
 ```
 
