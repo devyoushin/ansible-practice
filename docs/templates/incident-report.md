@@ -69,4 +69,4 @@ ansible-playbook -i inventories/prod/hosts.ini playbooks/incident_response.yml \
 ## 6. 학습 포인트
 
 이 장애에서 확인한 Ansible 운영 원칙:
-- {원칙 1}: `rules/ansible-conventions.md` 참조
+- {원칙 1}: `docs/rules/ansible-conventions.md` 참조

@@ -6,7 +6,7 @@
 
 다음 단계를 수행하세요:
 
-1. `templates/service-doc.md`를 읽어 템플릿 구조를 확인하세요.
+1. `docs/templates/service-doc.md`를 읽어 템플릿 구조를 확인하세요.
 2. 대상 유형을 파악하세요:
    - **롤**: `roles/<이름>/` — tasks, handlers, defaults, templates 구조
    - **플레이북**: `playbooks/<이름>.yml` + 문서
@@ -18,4 +18,4 @@
    - 실행 예시 (`ansible-playbook` 명령어)
    - 태그 목록
    - 트러블슈팅
-4. `rules/ansible-conventions.md` 기준으로 롤 디렉토리 구조를 확인하세요.
+4. `docs/rules/ansible-conventions.md` 기준으로 롤 디렉토리 구조를 확인하세요.

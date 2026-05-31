@@ -9,6 +9,7 @@ Terraform으로 프로비저닝된 AWS 인프라를 Ansible로 구성 관리하�
 ```
 ansible-practice/
 ├── CLAUDE.md                  # 이 파일 (자동 로드)
+├── AGENTS.md -> CLAUDE.md     # Codex 작업 지침 링크
 ├── .claude/
 │   ├── settings.json          # 권한 설정 (prod 실행 차단) + PostToolUse 훅
 │   └── commands/              # 커스텀 슬래시 명령어
@@ -17,20 +18,22 @@ ansible-practice/
 │       ├── review-doc.md      # /review-doc — 롤/플레이북 검토
 │       ├── add-troubleshooting.md  # /add-troubleshooting — 트러블슈팅 추가
 │       └── search-kb.md       # /search-kb — 지식베이스 검색
-├── agents/                    # 전문 에이전트 정의
-│   ├── doc-writer.md          # Ansible 문서 작성 전문가
-│   ├── playbook-reviewer.md   # 플레이북 코드 리뷰 전문가
-│   ├── security-auditor.md    # 보안 감사 전문가
-│   └── role-designer.md       # 롤 설계 전문가
-├── templates/                 # 문서 템플릿
-│   ├── service-doc.md         # 롤 README 템플릿
-│   ├── runbook.md             # 운영 런북 템플릿
-│   └── incident-report.md     # 장애 분석 보고서 템플릿
-├── rules/                     # Claude 작성 규칙
-│   ├── doc-writing.md         # 문서 작성 원칙
-│   ├── ansible-conventions.md # Ansible 코드 표준
-│   ├── security-checklist.md  # 보안 체크리스트
-│   └── monitoring.md          # 모니터링 지침
+├── docs/
+│   ├── README.md              # 문서 보조 자료 안내
+│   ├── agents/                # 전문 에이전트 정의
+│   │   ├── doc-writer.md      # Ansible 문서 작성 전문가
+│   │   ├── playbook-reviewer.md
+│   │   ├── security-auditor.md
+│   │   └── role-designer.md
+│   ├── templates/             # 문서 템플릿
+│   │   ├── service-doc.md
+│   │   ├── runbook.md
+│   │   └── incident-report.md
+│   └── rules/                 # Claude 작성 규칙
+│       ├── doc-writing.md
+│       ├── ansible-conventions.md
+│       ├── security-checklist.md
+│       └── monitoring.md
 ├── ansible.cfg                # Ansible 전역 설정
 ├── requirements.yml           # Galaxy 컬렉션 의존성
 ├── inventories/
@@ -62,6 +65,8 @@ ansible-practice/
 ├── molecule/default/          # 롤 단위 테스트 (Docker)
 └── filter_plugins/            # 커스텀 Jinja2 필터
 ```
+
+AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심볼릭 링크로만 유지합니다.
 
 ---
 

@@ -6,7 +6,7 @@ Ansible 롤 또는 플레이북을 검토합니다.
 
 다음 기준으로 검토하세요:
 
-**롤 구조 (rules/ansible-conventions.md 기준)**
+**롤 구조 (docs/rules/ansible-conventions.md 기준)**
 - [ ] tasks/main.yml — 태스크 분리 및 태그 적용
 - [ ] defaults/main.yml — 모든 변수 기본값 정의
 - [ ] handlers/main.yml — 서비스 재시작 핸들러
@@ -20,7 +20,7 @@ Ansible 롤 또는 플레이북을 검토합니다.
 - [ ] 하드코딩된 비밀번호 없음 (vault 변수 사용)
 - [ ] idempotent 보장 (반복 실행 시 동일 결과)
 
-**보안 (rules/security-checklist.md 기준)**
+**보안 (docs/rules/security-checklist.md 기준)**
 - [ ] SSH 설정 강화 여부 (security 롤)
 - [ ] 파일 권한 명시 (mode: '0644')
 - [ ] Vault 암호화 변수 사용

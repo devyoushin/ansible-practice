@@ -29,4 +29,4 @@ ansible-playbook -i inventories/<env>/hosts.ini playbooks/<플레이북>.yml \\
 ```
 
 3. 해당 롤 README.md의 트러블슈팅 섹션에 추가하세요.
-4. 여러 롤에 공통 적용되는 문제라면 `rules/ansible-conventions.md`에도 추가하세요.
+4. 여러 롤에 공통 적용되는 문제라면 `docs/rules/ansible-conventions.md`에도 추가하세요.

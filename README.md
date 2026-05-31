@@ -4,13 +4,32 @@ Terraform으로 프로비저닝된 AWS 인프라를 Ansible로 구성 관리하�
 
 ---
 
+## 어디서 시작할까
+
+- 문서 지도: `docs/README.md`
+- 기초 학습: `basics/README.md`
+- 실행 예제: `examples/README.md`
+- AI 작업 지침: `CLAUDE.md`
+- Codex 작업 지침: `AGENTS.md` → `CLAUDE.md`
+- 전체 배포 진입점: `playbooks/site.yml`
+
+---
+
 ## 디렉토리 구조
 
 ```
 ansible-practice/
+├── README.md                      # 프로젝트 입구
+├── CLAUDE.md                      # Claude/Codex 공통 작업 지침 원본
+├── AGENTS.md -> CLAUDE.md         # Codex용 지침 링크
 ├── ansible.cfg                    # Ansible 전역 설정 (vault, forks, callback 등)
 ├── requirements.yml               # Galaxy 컬렉션/롤 의존성
 ├── .yamllint                      # YAML 린트 규칙
+├── docs/                          # 문서 규칙, 템플릿, AI 에이전트 지침
+│   ├── README.md
+│   ├── agents/
+│   ├── rules/
+│   └── templates/
 │
 ├── inventories/
 │   ├── dev/
@@ -64,6 +83,23 @@ ansible-practice/
         ├── ci.yml                 # PR: lint → syntax-check → molecule
         └── deploy.yml             # CD: dev 자동배포, prod 수동승인
 ```
+
+## 구조 기준
+
+이 저장소는 문서와 실행 가능한 Ansible 자산이 함께 있는 실전형 저장소입니다. `prometheus-practice`처럼 공통 문서 보조 자료는 `docs/`에 모으고, 실제 실행 자산은 Ansible 표준 경로에 둡니다.
+
+| 경로 | 역할 |
+|------|------|
+| `docs/` | AI 에이전트 지침, 작성 규칙, 템플릿 |
+| `basics/` | Ansible 기초 학습 문서와 짧은 예제 |
+| `examples/` | 독립 실행 예제 |
+| `inventories/` | 환경별 인벤토리와 group_vars |
+| `playbooks/` | 배포, 운영, 장애 대응 실행 단위 |
+| `roles/` | 재사용 가능한 구성 관리 단위 |
+| `molecule/` | 롤 테스트 |
+| `filter_plugins/` | 커스텀 Jinja2 필터 |
+
+`CLAUDE.md`와 `AGENTS.md`는 별도 파일로 관리하지 않습니다. `AGENTS.md`는 `CLAUDE.md`를 가리키는 심볼릭 링크이므로, 작업 지침은 `CLAUDE.md`만 수정하면 됩니다.
 
 ---
 

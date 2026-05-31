@@ -27,5 +27,5 @@ description: Ansible 롤 및 플레이북 문서 작성 전문가. README, 변�
 
 ## 참조
 - `CLAUDE.md` — 프로젝트 구조, 플레이북 목록
-- `rules/ansible-conventions.md` — 코드 표준
-- `templates/service-doc.md` — 문서 템플릿
+- `docs/rules/ansible-conventions.md` — 코드 표준
+- `docs/templates/service-doc.md` — 문서 템플릿
