@@ -12,6 +12,8 @@
 | 실제 배포를 수정함 | `../ops/README.md` |
 | 실패 원인을 추적함 | `runbooks/playbook-failure.md` |
 | 배포 전에 점검함 | `checklists/pre-deploy.md` |
+| 문서/코드 규칙이 궁금함 | `rules/README.md` |
+| AI 작업 지침이 궁금함 | `agents/README.md` |
 
 ## 2. 개념부터 잡는다
 
@@ -50,7 +52,7 @@ ansible-playbook -i ../ops/inventories/dev/hosts.ini ../ops/playbooks/site.yml -
 |------|--------------|
 | 특정 호스트만 실패 | `runbooks/playbook-failure.md` |
 | Vault 관련 오류 | `runbooks/vault-rotation.md` |
-| 문서 규칙이 궁금함 | `rules/doc-writing.md` |
+| 문서 규칙이 궁금함 | `rules/README.md` |
 | 역할 구조가 헷갈림 | `basics/07_roles.md` |
 
 ## 추천 시작점
@@ -62,4 +64,6 @@ ansible-playbook -i ../ops/inventories/dev/hosts.ini ../ops/playbooks/site.yml -
 3. `docs/service-build-guide.md`
 4. `docs/basics/README.md`
 5. `docs/examples/README.md`
-6. `ops/README.md`
+6. `docs/rules/README.md`
+7. `docs/agents/README.md`
+8. `ops/README.md`

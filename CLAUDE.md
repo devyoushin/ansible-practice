@@ -56,6 +56,9 @@ AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심
 | `ops/outputs/` | dry-run, 점검 결과, 장애 대응 로그 보관 위치 |
 | `docs/checklists/` | 배포 전 점검과 롤 리뷰 체크리스트 |
 | `docs/runbooks/` | 플레이북 실패 대응, Vault 회전 런북 |
+| `docs/rules/` | 문서와 Ansible 코드 작성 규칙 |
+| `docs/agents/` | 문서 작성, 롤 설계, 보안 감사용 작업 지침 |
+| `docs/templates/` | 서비스 문서와 런북 템플릿 |
 
 ## 문서 시작 순서
 
@@ -65,6 +68,8 @@ AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심
 4. `docs/examples/README.md`
 5. `docs/checklists/pre-deploy.md`
 6. `docs/runbooks/playbook-failure.md`
+7. `docs/rules/README.md`
+8. `docs/agents/README.md`
 
 ---
 
