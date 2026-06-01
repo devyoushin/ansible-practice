@@ -7,12 +7,13 @@
 | 순서 | 문서 | 내용 |
 |------|------|------|
 | 1 | `getting-started.md` | 어디서부터 읽고 무엇을 실행할지 |
-| 2 | `basics/README.md` | Ansible 개념을 처음 익힐 때 |
-| 3 | `examples/README.md` | 짧은 예제로 실습할 때 |
-| 4 | `checklists/pre-deploy.md` | 배포 전 점검 |
-| 5 | `runbooks/playbook-failure.md` | 실패 대응 |
-| 6 | `rules/doc-writing.md` | 문서 작성 규칙 |
-| 7 | `../ops/README.md` | 실제 실행 자산과 운영 방법 |
+| 2 | `service-build-guide.md` | 서비스를 어떻게 분해해 구축할지 볼 때 |
+| 3 | `basics/README.md` | Ansible 개념을 처음 익힐 때 |
+| 4 | `examples/README.md` | 짧은 예제로 실습할 때 |
+| 5 | `checklists/pre-deploy.md` | 배포 전 점검 |
+| 6 | `runbooks/playbook-failure.md` | 실패 대응 |
+| 7 | `rules/doc-writing.md` | 문서 작성 규칙 |
+| 8 | `../ops/README.md` | 실제 실행 자산과 운영 방법 |
 
 ## 구성
 
@@ -22,6 +23,7 @@
 | `basics/` | Ansible 기초 학습 문서와 짧은 예제 |
 | `checklists/` | 배포 전 점검과 롤 리뷰 기준 |
 | `examples/` | `ops/examples/` 실행 예제 설명 |
+| `service-build-guide.md` | 서비스별 구축 패턴과 롤 분해 기준 |
 | `runbooks/` | 플레이북 실패 대응, Vault 회전 운영 절차 |
 | `rules/` | 문서 작성 규칙, Ansible 컨벤션, 보안/모니터링 체크리스트 |
 | `templates/` | 서비스 문서, 런북, 장애 보고서 템플릿 |

@@ -60,10 +60,11 @@ AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심
 ## 문서 시작 순서
 
 1. `docs/getting-started.md`
-2. `docs/basics/README.md`
-3. `docs/examples/README.md`
-4. `docs/checklists/pre-deploy.md`
-5. `docs/runbooks/playbook-failure.md`
+2. `docs/service-build-guide.md`
+3. `docs/basics/README.md`
+4. `docs/examples/README.md`
+5. `docs/checklists/pre-deploy.md`
+6. `docs/runbooks/playbook-failure.md`
 
 ---
 

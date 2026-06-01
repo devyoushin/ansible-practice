@@ -7,6 +7,7 @@
 | 작업 | 먼저 볼 문서 |
 |------|--------------|
 | Ansible 개념을 처음 익힘 | `basics/README.md` |
+| 서비스를 어떻게 만들지 고민함 | `service-build-guide.md` |
 | 예제 플레이북을 바로 실행해 봄 | `examples/README.md` |
 | 실제 배포를 수정함 | `../ops/README.md` |
 | 실패 원인을 추적함 | `runbooks/playbook-failure.md` |
@@ -58,6 +59,7 @@ ansible-playbook -i ../ops/inventories/dev/hosts.ini ../ops/playbooks/site.yml -
 
 1. `docs/README.md`
 2. `docs/getting-started.md`
-3. `docs/basics/README.md`
-4. `docs/examples/README.md`
-5. `ops/README.md`
+3. `docs/service-build-guide.md`
+4. `docs/basics/README.md`
+5. `docs/examples/README.md`
+6. `ops/README.md`
