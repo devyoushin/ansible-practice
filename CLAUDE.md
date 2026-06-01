@@ -57,6 +57,14 @@ AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심
 | `docs/checklists/` | 배포 전 점검과 롤 리뷰 체크리스트 |
 | `docs/runbooks/` | 플레이북 실패 대응, Vault 회전 런북 |
 
+## 문서 시작 순서
+
+1. `docs/getting-started.md`
+2. `docs/basics/README.md`
+3. `docs/examples/README.md`
+4. `docs/checklists/pre-deploy.md`
+5. `docs/runbooks/playbook-failure.md`
+
 ---
 
 ## 커스텀 슬래시 명령어

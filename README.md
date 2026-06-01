@@ -7,6 +7,7 @@ Terraform으로 프로비저닝된 AWS 인프라를 Ansible로 구성 관리하�
 ## 어디서 시작할까
 
 - 문서 지도: `docs/README.md`
+- 시작 가이드: `docs/getting-started.md`
 - 운영 실행 가이드: `ops/README.md`
 - 기초 학습: `docs/basics/README.md`
 - 실행 예제 설명: `docs/examples/README.md`
