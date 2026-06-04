@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-log_file="${1:-logs/ansible.log}"
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+ops_dir="$(cd "$script_dir/.." && pwd)"
+log_file="${1:-$ops_dir/runtime/logs/ansible.log}"
 
 if [[ ! -f "$log_file" ]]; then
   echo "log file not found: $log_file"

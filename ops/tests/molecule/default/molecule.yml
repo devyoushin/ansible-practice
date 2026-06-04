@@ -3,8 +3,7 @@
 # Docker 컨테이너로 롤을 격리된 환경에서 테스트
 #
 # 설치: pip install molecule molecule-docker
-# 실행: cd roles/common && molecule test
-#       molecule test --scenario-name default
+# 실행: cd tests && ANSIBLE_ROLES_PATH=../roles molecule test -s default
 #       molecule converge  # 롤만 실행 (전체 테스트 X)
 #       molecule verify    # 검증만 실행
 #       molecule destroy   # 컨테이너 삭제
@@ -13,7 +12,7 @@
 dependency:
   name: galaxy
   options:
-    requirements-file: requirements.yml
+    requirements-file: ../requirements.yml
 
 driver:
   name: docker
@@ -52,8 +51,8 @@ provisioner:
 
 lint: |
   set -e
-  ansible-lint
-  yamllint .
+  ansible-lint ../roles/common
+  yamllint ..
 
 verifier:
   name: ansible

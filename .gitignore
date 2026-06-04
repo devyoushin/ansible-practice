@@ -1,5 +1,6 @@
 .claude/
-ops/logs/*.log
-ops/tmp/
+ops/runtime/logs/*.log
+ops/runtime/tmp/
 
-!ops/logs/.gitkeep
+!ops/runtime/logs/.gitkeep
+!ops/runtime/outputs/.gitkeep

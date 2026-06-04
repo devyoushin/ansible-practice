@@ -44,11 +44,11 @@ ansible-practice/
     ├── inventories/               # dev/staging/prod/aws 인벤토리
     ├── playbooks/                 # 배포, 운영, 장애 대응 플레이북
     ├── roles/                     # 재사용 가능한 롤
-    ├── molecule/                  # 롤 단위 테스트
+    ├── tests/                     # Molecule 등 롤 단위 테스트
     ├── filter_plugins/            # 커스텀 Jinja2 필터
     ├── scripts/                   # 반복 점검용 보조 스크립트
-    ├── outputs/                   # dry-run, 점검 결과 보관 위치
-    └── github-workflows/          # GitHub Actions 워크플로 예시
+    ├── runtime/                   # 로그, dry-run 결과, 임시 파일
+    └── ci/                        # GitHub Actions 워크플로 예시
 ```
 
 ## 구조 기준
@@ -70,10 +70,10 @@ ansible-practice/
 | `ops/inventories/` | 환경별 인벤토리와 group_vars |
 | `ops/playbooks/` | 배포, 운영, 장애 대응 실행 단위 |
 | `ops/roles/` | 재사용 가능한 구성 관리 단위 |
-| `ops/molecule/` | 롤 테스트 |
+| `ops/tests/` | Molecule 등 롤 테스트 |
 | `ops/filter_plugins/` | 커스텀 Jinja2 필터 |
 | `ops/scripts/` | syntax-check, dry-run, 실패 로그 추출 보조 스크립트 |
-| `ops/outputs/` | dry-run, 점검 결과, 장애 대응 로그 보관 위치 |
+| `ops/runtime/` | 로그, dry-run 결과, 임시 파일 등 실행 산출물 |
 
 `CLAUDE.md`와 `AGENTS.md`는 별도 파일로 관리하지 않습니다. `AGENTS.md`는 `CLAUDE.md`를 가리키는 심볼릭 링크이므로, 작업 지침은 `CLAUDE.md`만 수정하면 됩니다.
 
@@ -304,12 +304,12 @@ role defaults → inventory group_vars → inventory host_vars
 ```bash
 pip install molecule molecule-docker
 
-# 특정 롤 테스트
-cd ops/roles/common
-molecule test         # 전체 (create → converge → verify → destroy)
-molecule converge     # 롤 적용만
-molecule verify       # 검증만
-molecule destroy      # 컨테이너 삭제
+# 기본 시나리오 테스트
+cd ops/tests
+ANSIBLE_ROLES_PATH=../roles molecule test -s default         # 전체
+ANSIBLE_ROLES_PATH=../roles molecule converge -s default     # 롤 적용만
+ANSIBLE_ROLES_PATH=../roles molecule verify -s default       # 검증만
+ANSIBLE_ROLES_PATH=../roles molecule destroy -s default      # 컨테이너 삭제
 ```
 
 ---
@@ -368,7 +368,7 @@ PR 생성
   → yamllint (YAML 문법)
   → ansible-lint (모범 사례)
   → syntax-check (각 플레이북)
-  → molecule test (각 롤)
+  → molecule test (role 검증)
   → dry-run --check (dev 환경)
 
 main 머지

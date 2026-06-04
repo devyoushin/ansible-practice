@@ -61,11 +61,11 @@
 | `../ops/inventories/` | dev/staging/prod 정적 인벤토리와 AWS 동적 인벤토리 |
 | `../ops/playbooks/` | 배포, 롤링 업데이트, 장애 대응, 유지보수 플레이북 |
 | `../ops/roles/` | 공통 초기화, 보안, 웹서버, DB, 앱, 모니터링 등 재사용 롤 |
-| `../ops/molecule/` | 롤 단위 테스트 |
+| `../ops/tests/` | Molecule 등 롤 단위 테스트 |
 | `../ops/filter_plugins/` | 커스텀 Jinja2 필터 |
 | `../ops/examples/` | 실습 예제 코드 |
 | `../ops/scripts/` | 반복 점검용 보조 스크립트 |
-| `../ops/outputs/` | dry-run, 점검 결과, 장애 대응 로그 보관 위치 |
+| `../ops/runtime/` | 로그, dry-run 결과, 임시 파일 등 실행 산출물 |
 
 ## 작업 기준
 

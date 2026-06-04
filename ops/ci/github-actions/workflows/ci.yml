@@ -15,6 +15,10 @@ on:
   push:
     branches: [main]
 
+defaults:
+  run:
+    working-directory: ops
+
 jobs:
   # ----------------------------
   # 1. lint: 코드 품질 검사
@@ -100,9 +104,9 @@ jobs:
         run: pip install ansible molecule molecule-docker docker
 
       - name: Molecule 테스트 실행
+        working-directory: ops/tests
         run: |
-          cd roles/${{ matrix.role }}
-          molecule test
+          ANSIBLE_ROLES_PATH=../roles molecule test -s default
         env:
           PY_COLORS: "1"
           ANSIBLE_FORCE_COLOR: "1"

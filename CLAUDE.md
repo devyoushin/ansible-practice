@@ -36,9 +36,10 @@ ansible-practice/
     ├── inventories/           # dev/staging/prod/aws 인벤토리
     ├── playbooks/             # 배포, 운영, 장애 대응 플레이북
     ├── roles/                 # 재사용 가능한 롤
-    ├── molecule/default/      # 롤 단위 테스트
+    ├── tests/molecule/        # Molecule 등 롤 단위 테스트
     ├── scripts/               # 반복 점검용 보조 스크립트
-    ├── outputs/               # dry-run, 점검 결과 보관 위치
+    ├── runtime/               # 로그, dry-run 결과, 임시 파일
+    ├── ci/                    # GitHub Actions 워크플로 예시
     └── filter_plugins/        # 커스텀 Jinja2 필터
 ```
 
@@ -53,7 +54,7 @@ AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심
 | 경로 | 용도 |
 |------|------|
 | `ops/scripts/` | syntax-check, dry-run, 실패 로그 추출 보조 스크립트 |
-| `ops/outputs/` | dry-run, 점검 결과, 장애 대응 로그 보관 위치 |
+| `ops/runtime/` | 로그, dry-run 결과, 임시 파일 등 실행 산출물 |
 | `docs/checklists/` | 배포 전 점검과 롤 리뷰 체크리스트 |
 | `docs/runbooks/` | 플레이북 실패 대응, Vault 회전 런북 |
 | `docs/rules/` | 문서와 Ansible 코드 작성 규칙 |
