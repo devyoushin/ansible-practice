@@ -37,9 +37,8 @@ ansible-practice/
 │   ├── runbooks/
 │   └── templates/
 └── ops/                           # 실제 Ansible 실행 자산
-    ├── ansible.cfg                # Ansible 전역 설정
-    ├── requirements.yml           # Galaxy 컬렉션/롤 의존성
-    ├── .yamllint                  # YAML 린트 규칙
+    ├── config/                    # Ansible, yamllint 도구 설정
+    ├── dependencies/              # Galaxy 컬렉션/롤 의존성
     ├── examples/                  # 독립 실행 예제 코드
     ├── inventories/               # dev/staging/prod/aws 인벤토리
     ├── playbooks/                 # 배포, 운영, 장애 대응 플레이북
@@ -66,6 +65,8 @@ ansible-practice/
 | `docs/runbooks/` | 플레이북 실패 대응, Vault 회전 운영 절차 |
 | `docs/rules/` | 문서 작성 규칙과 Ansible 컨벤션 |
 | `docs/templates/` | 서비스 문서, 런북, 장애 보고서 템플릿 |
+| `ops/config/` | Ansible, yamllint 등 도구 설정 |
+| `ops/dependencies/` | Galaxy 컬렉션과 외부 롤 의존성 |
 | `ops/examples/` | 독립 실행 예제 코드 |
 | `ops/inventories/` | 환경별 인벤토리와 group_vars |
 | `ops/playbooks/` | 배포, 운영, 장애 대응 실행 단위 |
@@ -95,8 +96,11 @@ ansible-practice/
 
 ```bash
 pip install ansible boto3
-ansible-galaxy install -r ops/requirements.yml
+ansible-galaxy install -r ops/dependencies/requirements.yml
+export ANSIBLE_CONFIG=ops/config/ansible.cfg
 ```
+
+아래 `ansible`, `ansible-playbook`, `ansible-inventory` 예시는 저장소 루트에서 위 `ANSIBLE_CONFIG`를 지정한 상태를 기준으로 합니다.
 
 ### 2. Vault 비밀번호 설정
 
@@ -388,7 +392,7 @@ main 머지
 | `terraform.tfvars` | `group_vars/all.yml` | 환경별 변수값 |
 | `variables.tf` | `defaults/main.yml` | 변수 정의 및 기본값 |
 | `outputs.tf` | `register` + `debug` | 결과값 출력 |
-| `provider.tf` + `backend.tf` | `ops/ansible.cfg` | 도구 설정 |
+| `provider.tf` + `backend.tf` | `ops/config/ansible.cfg` | 도구 설정 |
 | `main.tf` (envs) | `ops/playbooks/site.yml` | 전체 오케스트레이션 |
 | Terraform Cloud / AWS Secrets Manager | Ansible Vault | 시크릿 관리 |
 

@@ -6,8 +6,8 @@ Ansible 실행 자산과 운영 보조 자료를 모아둔 디렉터리입니다
 
 | 경로 | 내용 |
 |------|------|
-| `ansible.cfg` | inventory, roles_path, log_path 등 Ansible 기본 설정 |
-| `requirements.yml` | Galaxy 컬렉션과 롤 의존성 |
+| `config/` | Ansible, yamllint 등 도구 설정 |
+| `dependencies/` | Galaxy 컬렉션과 롤 의존성 |
 | `inventories/` | 접속 대상 정의. dev/staging/prod 정적 인벤토리와 AWS 동적 인벤토리 |
 | `playbooks/` | 실행 진입점. 배포, 롤링 업데이트, 장애 대응, 유지보수 플레이북 |
 | `roles/` | 구현 단위. 공통 초기화, 보안, 웹서버, DB, 앱, 모니터링 등 재사용 롤 |
@@ -22,10 +22,24 @@ Ansible 실행 자산과 운영 보조 자료를 모아둔 디렉터리입니다
 
 ```bash
 cd ops
-ansible-galaxy install -r requirements.yml
-ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml --check --diff
-ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml
+ansible-galaxy install -r dependencies/requirements.yml
+ANSIBLE_CONFIG=config/ansible.cfg ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml --check --diff
+ANSIBLE_CONFIG=config/ansible.cfg ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml
 ```
+
+## 운영 테마
+
+| 테마 | 사용하는 경로 | 설명 |
+|------|---------------|------|
+| 환경 대상 관리 | `inventories/` | dev/staging/prod/aws 대상 서버와 그룹을 정의 |
+| 공통 베이스라인 | `playbooks/common.yml`, `roles/common`, `roles/security` | 계정, 패키지, SSH, 방화벽, sysctl 같은 기본 운영 기준 적용 |
+| 서비스 구축 | `playbooks/webserver.yml`, `playbooks/app.yml`, `playbooks/database.yml`, `roles/` | Nginx, Tomcat, Redis, DB, 앱 서버를 role 단위로 구축 |
+| 전체 배포 | `playbooks/site.yml` | 환경별 전체 구성을 한 번에 적용하는 표준 진입점 |
+| 배포 전략 | `playbooks/rolling_update.yml`, `playbooks/blue_green_deploy.yml` | 무중단 배포, 단계적 전환, 빠른 롤백 절차 |
+| 운영 유지보수 | `playbooks/maintenance.yml`, `playbooks/os_upgrade.yml` | 로그 정리, 패키지 업데이트, OS 업그레이드 |
+| 장애 대응 | `playbooks/incident_response.yml`, `scripts/list-failed-hosts.sh` | 장애 진단, 자동 복구, 실패 로그 추출 |
+| 검증과 품질 | `scripts/`, `tests/`, `ci/` | syntax-check, dry-run, Molecule, CI 예시 |
+| 실행 산출물 | `runtime/` | 로그, dry-run 결과, 임시 파일 보관 |
 
 ## 운영 기준
 

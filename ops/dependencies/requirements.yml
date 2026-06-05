@@ -1,7 +1,7 @@
 # =============================================================
 # Ansible Galaxy 의존성 (롤 및 컬렉션)
-# 설치: ansible-galaxy install -r requirements.yml
-#       ansible-galaxy collection install -r requirements.yml
+# 설치: ansible-galaxy install -r dependencies/requirements.yml
+#       ansible-galaxy collection install -r dependencies/requirements.yml
 # =============================================================
 
 collections:

@@ -1,6 +1,6 @@
 # =============================================================
 # yamllint 설정 (CI에서 YAML 문법 검사에 사용)
-# 실행: yamllint .
+# 실행: yamllint -c config/yamllint.yml .
 # =============================================================
 
 extends: default
@@ -23,5 +23,5 @@ rules:
 
 ignore: |
   .git/
-  molecule/
+  tests/molecule/
   inventories/*/group_vars/vault.yml   # 암호화된 파일은 검사 제외

@@ -58,6 +58,8 @@
 
 | 경로 | 내용 |
 |------|------|
+| `../ops/config/` | Ansible, yamllint 등 도구 설정 |
+| `../ops/dependencies/` | Galaxy 컬렉션과 외부 롤 의존성 |
 | `../ops/inventories/` | dev/staging/prod 정적 인벤토리와 AWS 동적 인벤토리 |
 | `../ops/playbooks/` | 배포, 롤링 업데이트, 장애 대응, 유지보수 플레이북 |
 | `../ops/roles/` | 공통 초기화, 보안, 웹서버, DB, 앱, 모니터링 등 재사용 롤 |

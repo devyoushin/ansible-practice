@@ -31,12 +31,13 @@
 
 ```bash
 pip install ansible boto3
-ansible-galaxy install -r ../ops/requirements.yml
+ansible-galaxy install -r ../ops/dependencies/requirements.yml
 ```
 
 ```bash
-ansible-playbook -i ../ops/inventories/dev/hosts.ini ../ops/playbooks/site.yml --syntax-check
-ansible-playbook -i ../ops/inventories/dev/hosts.ini ../ops/playbooks/site.yml --check --diff
+cd ../ops
+ANSIBLE_CONFIG=config/ansible.cfg ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml --syntax-check
+ANSIBLE_CONFIG=config/ansible.cfg ansible-playbook -i inventories/dev/hosts.ini playbooks/site.yml --check --diff
 ```
 
 ## 4. 배포 흐름

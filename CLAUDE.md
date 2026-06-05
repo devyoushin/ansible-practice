@@ -31,8 +31,8 @@ ansible-practice/
 │       ├── security-checklist.md
 │       └── monitoring.md
 └── ops/                       # 실제 Ansible 실행 자산
-    ├── ansible.cfg            # Ansible 전역 설정
-    ├── requirements.yml       # Galaxy 컬렉션 의존성
+    ├── config/                # Ansible, yamllint 도구 설정
+    ├── dependencies/          # Galaxy 컬렉션 의존성
     ├── inventories/           # dev/staging/prod/aws 인벤토리
     ├── playbooks/             # 배포, 운영, 장애 대응 플레이북
     ├── roles/                 # 재사용 가능한 롤
@@ -53,6 +53,8 @@ AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심
 
 | 경로 | 용도 |
 |------|------|
+| `ops/config/` | Ansible, yamllint 도구 설정 |
+| `ops/dependencies/` | Galaxy 컬렉션과 외부 롤 의존성 |
 | `ops/scripts/` | syntax-check, dry-run, 실패 로그 추출 보조 스크립트 |
 | `ops/runtime/` | 로그, dry-run 결과, 임시 파일 등 실행 산출물 |
 | `docs/checklists/` | 배포 전 점검과 롤 리뷰 체크리스트 |

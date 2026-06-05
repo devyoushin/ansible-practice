@@ -39,9 +39,10 @@ jobs:
       - name: 의존성 설치
         run: |
           pip install ansible ansible-lint yamllint
+          ansible-galaxy install -r dependencies/requirements.yml
 
       - name: YAML 문법 검사
-        run: yamllint .
+        run: yamllint -c config/yamllint.yml .
 
       - name: Ansible Lint
         run: ansible-lint playbooks/
@@ -68,9 +69,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Python + Ansible 설치
-        run: pip install ansible
+        run: |
+          pip install ansible
+          ansible-galaxy install -r dependencies/requirements.yml
 
       - name: 플레이북 문법 체크
+        env:
+          ANSIBLE_CONFIG: config/ansible.cfg
         run: |
           ansible-playbook \
             -i inventories/dev/hosts.ini \
@@ -124,7 +129,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Python + Ansible 설치
-        run: pip install ansible boto3
+        run: |
+          pip install ansible boto3
+          ansible-galaxy install -r dependencies/requirements.yml
 
       - name: AWS 자격증명 설정
         uses: aws-actions/configure-aws-credentials@v4
@@ -142,6 +149,8 @@ jobs:
         run: echo "${{ secrets.ANSIBLE_VAULT_PASSWORD }}" > ~/.vault_pass
 
       - name: 드라이런 실행 (--check)
+        env:
+          ANSIBLE_CONFIG: config/ansible.cfg
         run: |
           ansible-playbook \
             -i inventories/dev/hosts.ini \

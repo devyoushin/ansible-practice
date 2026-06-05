@@ -13,4 +13,5 @@ case "$env_name" in
 esac
 
 cd "$(dirname "$0")/.."
+export ANSIBLE_CONFIG="${ANSIBLE_CONFIG:-config/ansible.cfg}"
 ansible-playbook -i "inventories/${env_name}/hosts.ini" "playbooks/${playbook}" --check --diff

@@ -12,7 +12,7 @@
 dependency:
   name: galaxy
   options:
-    requirements-file: ../requirements.yml
+    requirements-file: ../dependencies/requirements.yml
 
 driver:
   name: docker
@@ -52,7 +52,7 @@ provisioner:
 lint: |
   set -e
   ansible-lint ../roles/common
-  yamllint ..
+  yamllint -c ../config/yamllint.yml ..
 
 verifier:
   name: ansible
