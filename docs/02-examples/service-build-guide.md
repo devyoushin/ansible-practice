@@ -35,8 +35,8 @@
 | 실행 자산 | `ops/roles/<role>/` | 실제 설치, 설정, 서비스 시작 |
 | 환경 변수 | `ops/inventories/<env>/group_vars/` | dev/staging/prod 별 변수 |
 | 운영 설명 | `docs/` | 읽는 순서, 설계 의도, 운영 기준 |
-| 점검 기준 | `docs/checklists/` | 배포 전 확인 항목 |
-| 실패 대응 | `docs/runbooks/` | 장애, 롤백, 재배포 절차 |
+| 점검 기준 | `docs/03-checklists/` | 배포 전 확인 항목 |
+| 실패 대응 | `docs/04-runbooks/` | 장애, 롤백, 재배포 절차 |
 
 롤 내부는 가능하면 다음 순서를 따릅니다.
 
@@ -166,12 +166,12 @@ roles/<service>/
 
 서비스를 새로 정리할 때는 다음 문서 순서로 맞추는 게 가장 덜 흔들립니다.
 
-1. `docs/getting-started.md`
-2. `docs/service-build-guide.md`
-3. `docs/basics/07_roles.md`
-4. `docs/basics/08_templates.md`
-5. `docs/checklists/pre-deploy.md`
-6. `docs/runbooks/playbook-failure.md`
+1. `docs/01-basics/getting-started.md`
+2. `docs/02-examples/service-build-guide.md`
+3. `docs/01-basics/07_roles.md`
+4. `docs/01-basics/08_templates.md`
+5. `docs/03-checklists/pre-deploy.md`
+6. `docs/04-runbooks/playbook-failure.md`
 7. `ops/README.md`
 
 ---
@@ -184,16 +184,16 @@ roles/<service>/
 - [ ] 템플릿에 `validate:` 또는 사전 점검을 넣었다
 - [ ] 서비스 재시작은 handler로만 유도했다
 - [ ] `uri`, `command`, `shell` 검증은 최소화하고 조건을 명시했다
-- [ ] 운영용 헬스체크와 실패 대응 절차를 `docs/runbooks/`에 연결했다
+- [ ] 운영용 헬스체크와 실패 대응 절차를 `docs/04-runbooks/`에 연결했다
 - [ ] `--tags`, `--limit`, `--check`, `--diff` 실행 예시를 문서에 남겼다
 
 ---
 
 ## 참고 경로
 
-- `docs/templates/service-doc.md`
-- `docs/rules/ansible-conventions.md`
-- `docs/examples/README.md`
+- `docs/91-templates/service-doc.md`
+- `docs/90-standards/ansible-conventions.md`
+- `docs/02-examples/README.md`
 - `ops/roles/webserver/`
 - `ops/roles/tomcat/`
 - `ops/roles/redis/`

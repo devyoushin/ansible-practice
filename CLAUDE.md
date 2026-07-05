@@ -57,22 +57,22 @@ AI 작업 지침은 `CLAUDE.md`를 원본으로 관리하고, `AGENTS.md`는 심
 | `ops/dependencies/` | Galaxy 컬렉션과 외부 롤 의존성 |
 | `ops/scripts/` | syntax-check, dry-run, 실패 로그 추출 보조 스크립트 |
 | `ops/runtime/` | 로그, dry-run 결과, 임시 파일 등 실행 산출물 |
-| `docs/checklists/` | 배포 전 점검과 롤 리뷰 체크리스트 |
-| `docs/runbooks/` | 플레이북 실패 대응, Vault 회전 런북 |
-| `docs/rules/` | 문서와 Ansible 코드 작성 규칙 |
-| `docs/agents/` | 문서 작성, 롤 설계, 보안 감사용 작업 지침 |
-| `docs/templates/` | 서비스 문서와 런북 템플릿 |
+| `docs/03-checklists/` | 배포 전 점검과 롤 리뷰 체크리스트 |
+| `docs/04-runbooks/` | 플레이북 실패 대응, Vault 회전 런북 |
+| `docs/90-standards/` | 문서와 Ansible 코드 작성 규칙 |
+| `docs/99-agents/` | 문서 작성, 롤 설계, 보안 감사용 작업 지침 |
+| `docs/91-templates/` | 서비스 문서와 런북 템플릿 |
 
 ## 문서 시작 순서
 
-1. `docs/getting-started.md`
-2. `docs/service-build-guide.md`
-3. `docs/basics/README.md`
-4. `docs/examples/README.md`
-5. `docs/checklists/pre-deploy.md`
-6. `docs/runbooks/playbook-failure.md`
-7. `docs/rules/README.md`
-8. `docs/agents/README.md`
+1. `docs/01-basics/getting-started.md`
+2. `docs/02-examples/service-build-guide.md`
+3. `docs/01-basics/README.md`
+4. `docs/02-examples/README.md`
+5. `docs/03-checklists/pre-deploy.md`
+6. `docs/04-runbooks/playbook-failure.md`
+7. `docs/90-standards/README.md`
+8. `docs/99-agents/README.md`
 
 ---
 

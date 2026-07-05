@@ -7,13 +7,13 @@ Terraform으로 프로비저닝된 AWS 인프라를 Ansible로 구성 관리하�
 ## 어디서 시작할까
 
 - 문서 지도: `docs/README.md`
-- 시작 가이드: `docs/getting-started.md`
-- 서비스 구축 가이드: `docs/service-build-guide.md`
-- 규칙 가이드: `docs/rules/README.md`
-- AI 작업 지침: `docs/agents/README.md`
+- 시작 가이드: `docs/01-basics/getting-started.md`
+- 서비스 구축 가이드: `docs/02-examples/service-build-guide.md`
+- 규칙 가이드: `docs/90-standards/README.md`
+- AI 작업 지침: `docs/99-agents/README.md`
 - 운영 실행 가이드: `ops/README.md`
-- 기초 학습: `docs/basics/README.md`
-- 실행 예제 설명: `docs/examples/README.md`
+- 기초 학습: `docs/01-basics/README.md`
+- 실행 예제 설명: `docs/02-examples/README.md`
 - Claude 원본 지침: `CLAUDE.md`
 - Codex 작업 지침: `AGENTS.md` → `CLAUDE.md`
 - 전체 배포 진입점: `ops/playbooks/site.yml`
@@ -57,17 +57,17 @@ ansible-practice/
 | 경로 | 역할 |
 |------|------|
 | `docs/` | AI 에이전트 지침, 기초 학습, 운영 절차, 템플릿 |
-| `docs/service-build-guide.md` | 서비스 구축 패턴과 롤 분해 기준 |
-| `docs/agents/` | AI 작업 지침 |
-| `docs/basics/` | Ansible 기초 학습 문서와 짧은 예제 |
-| `docs/examples/` | `ops/examples/` 실행 예제 설명 |
-| `docs/checklists/` | 배포 전 점검과 롤 리뷰 기준 |
-| `docs/runbooks/` | 플레이북 실패 대응, Vault 회전 운영 절차 |
-| `docs/rules/` | 문서 작성 규칙과 Ansible 컨벤션 |
-| `docs/templates/` | 서비스 문서, 런북, 장애 보고서 템플릿 |
+| `docs/02-examples/service-build-guide.md` | 서비스 구축 패턴과 롤 분해 기준 |
+| `docs/99-agents/` | AI 작업 지침 |
+| `docs/01-basics/` | Ansible 기초 학습 문서와 짧은 예제 |
+| `docs/02-examples/` | `ops/02-examples/` 실행 예제 설명 |
+| `docs/03-checklists/` | 배포 전 점검과 롤 리뷰 기준 |
+| `docs/04-runbooks/` | 플레이북 실패 대응, Vault 회전 운영 절차 |
+| `docs/90-standards/` | 문서 작성 규칙과 Ansible 컨벤션 |
+| `docs/91-templates/` | 서비스 문서, 런북, 장애 보고서 템플릿 |
 | `ops/config/` | Ansible, yamllint 등 도구 설정 |
 | `ops/dependencies/` | Galaxy 컬렉션과 외부 롤 의존성 |
-| `ops/examples/` | 독립 실행 예제 코드 |
+| `ops/02-examples/` | 독립 실행 예제 코드 |
 | `ops/inventories/` | 환경별 인벤토리와 group_vars |
 | `ops/playbooks/` | 배포, 운영, 장애 대응 실행 단위 |
 | `ops/roles/` | 재사용 가능한 구성 관리 단위 |

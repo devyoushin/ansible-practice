@@ -17,5 +17,5 @@
 | `os_upgrade` | OS 패키지 업데이트와 재부팅 흐름 |
 | `data_migration` | 데이터 이관과 검증 |
 
-role 변경 시 `../../docs/checklists/role-review.md`를 기준으로 변수, idempotency, handler, 보안 값을 확인합니다.
+role 변경 시 `../../docs/03-checklists/role-review.md`를 기준으로 변수, idempotency, handler, 보안 값을 확인합니다.
 

@@ -61,10 +61,10 @@ ANSIBLE_CONFIG=config/ansible.cfg ansible-playbook -i inventories/dev/hosts.ini 
 처음이라면 아래 순서가 가장 안전합니다.
 
 1. `docs/README.md`
-2. `docs/getting-started.md`
-3. `docs/service-build-guide.md`
-4. `docs/basics/README.md`
-5. `docs/examples/README.md`
-6. `docs/rules/README.md`
-7. `docs/agents/README.md`
+2. `docs/01-basics/getting-started.md`
+3. `docs/02-examples/service-build-guide.md`
+4. `docs/01-basics/README.md`
+5. `docs/02-examples/README.md`
+6. `docs/90-standards/README.md`
+7. `docs/99-agents/README.md`
 8. `ops/README.md`

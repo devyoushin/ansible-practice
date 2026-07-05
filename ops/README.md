@@ -43,10 +43,10 @@ ANSIBLE_CONFIG=config/ansible.cfg ansible-playbook -i inventories/dev/hosts.ini 
 
 ## 운영 기준
 
-- prod 실행 전에는 `../docs/checklists/pre-deploy.md`를 먼저 확인합니다.
-- 롤 변경은 `../docs/checklists/role-review.md` 기준으로 리뷰합니다.
-- 실패한 배포는 `../docs/runbooks/playbook-failure.md` 흐름으로 원인을 분리합니다.
-- Vault 비밀번호나 시크릿 교체는 `../docs/runbooks/vault-rotation.md`를 사용합니다.
+- prod 실행 전에는 `../docs/03-checklists/pre-deploy.md`를 먼저 확인합니다.
+- 롤 변경은 `../docs/03-checklists/role-review.md` 기준으로 리뷰합니다.
+- 실패한 배포는 `../docs/04-runbooks/playbook-failure.md` 흐름으로 원인을 분리합니다.
+- Vault 비밀번호나 시크릿 교체는 `../docs/04-runbooks/vault-rotation.md`를 사용합니다.
 - dry-run 결과, 장애 대응 로그, 변경 전후 비교 자료는 `runtime/outputs/` 아래에 날짜별로 저장합니다.
 
 ## 보조 스크립트

@@ -20,7 +20,7 @@ nginx를 소스 빌드해서 `/nginx` 아래에 설치하는 Ansible role 예시
 테스트 대상 서버를 `inventory/hosts.ini`에 적은 뒤 실행합니다.
 
 ```bash
-ansible-playbook -i ops/examples/custom-nginx/inventory/hosts.ini ops/examples/custom-nginx/site.yml
+ansible-playbook -i ops/02-examples/custom-nginx/inventory/hosts.ini ops/02-examples/custom-nginx/site.yml
 ```
 
 로컬 VM이나 테스트 서버에 먼저 적용하려면:
@@ -69,23 +69,23 @@ systemctl enable --now nginx-custom
 예시 파일 배치:
 
 ```text
-ops/examples/custom-nginx/files/nginx-1.26.2.tar.gz
+ops/02-examples/custom-nginx/files/nginx-1.26.2.tar.gz
 ```
 
 그 다음 `nginx_custom_source_archive`를 지정합니다.
 
 ```yaml
 nginx_custom_version: "1.26.2"
-nginx_custom_source_archive: ops/examples/custom-nginx/files/nginx-1.26.2.tar.gz
+nginx_custom_source_archive: ops/02-examples/custom-nginx/files/nginx-1.26.2.tar.gz
 ```
 
 실행 예:
 
 ```bash
 ansible-playbook \
-  -i ops/examples/custom-nginx/inventory/hosts.ini \
-  ops/examples/custom-nginx/site.yml \
-  -e @ops/examples/custom-nginx/offline-vars.yml
+  -i ops/02-examples/custom-nginx/inventory/hosts.ini \
+  ops/02-examples/custom-nginx/site.yml \
+  -e @ops/02-examples/custom-nginx/offline-vars.yml
 ```
 
 이 방식에서는 대상 서버가 외부망에 접근하지 않습니다. Ansible 컨트롤 노드가 들고 있는 tarball을 대상 서버의 `/usr/local/src`로 복사한 뒤 빌드합니다.
@@ -108,12 +108,12 @@ ca-certificates
 예시:
 
 ```text
-ops/examples/custom-nginx/files/rpms/gcc-*.rpm
-ops/examples/custom-nginx/files/rpms/make-*.rpm
-ops/examples/custom-nginx/files/rpms/pcre-devel-*.rpm
-ops/examples/custom-nginx/files/rpms/zlib-devel-*.rpm
-ops/examples/custom-nginx/files/rpms/openssl-devel-*.rpm
-ops/examples/custom-nginx/files/rpms/*.rpm
+ops/02-examples/custom-nginx/files/rpms/gcc-*.rpm
+ops/02-examples/custom-nginx/files/rpms/make-*.rpm
+ops/02-examples/custom-nginx/files/rpms/pcre-devel-*.rpm
+ops/02-examples/custom-nginx/files/rpms/zlib-devel-*.rpm
+ops/02-examples/custom-nginx/files/rpms/openssl-devel-*.rpm
+ops/02-examples/custom-nginx/files/rpms/*.rpm
 ```
 
 변수는 이렇게 둡니다.
@@ -121,11 +121,11 @@ ops/examples/custom-nginx/files/rpms/*.rpm
 ```yaml
 nginx_custom_dependency_install_mode: local_files
 nginx_custom_dependency_package_files:
-  - ops/examples/custom-nginx/files/rpms/gcc-1.rpm
-  - ops/examples/custom-nginx/files/rpms/make-1.rpm
-  - ops/examples/custom-nginx/files/rpms/pcre-devel-1.rpm
-  - ops/examples/custom-nginx/files/rpms/zlib-devel-1.rpm
-  - ops/examples/custom-nginx/files/rpms/openssl-devel-1.rpm
+  - ops/02-examples/custom-nginx/files/rpms/gcc-1.rpm
+  - ops/02-examples/custom-nginx/files/rpms/make-1.rpm
+  - ops/02-examples/custom-nginx/files/rpms/pcre-devel-1.rpm
+  - ops/02-examples/custom-nginx/files/rpms/zlib-devel-1.rpm
+  - ops/02-examples/custom-nginx/files/rpms/openssl-devel-1.rpm
 ```
 
 주의할 점은 RPM 파일명을 예시처럼 와일드카드로 쓰면 안 된다는 점입니다. Ansible 변수에는 실제 파일명을 하나씩 적는 편이 가장 명확합니다.
